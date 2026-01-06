@@ -41,9 +41,9 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    """1銘柄分の取得ロジック（安定版・ハイブリッド計算）"""
+    """1銘柄分の取得ロジック（ETF/REIT判定入り）"""
     
-    # アクセス制限対策：人間らしく振る舞うための休憩
+    # アクセス制限対策
     time.sleep(random.uniform(0.5, 1.5))
 
     ticker = f"{code4}.T"
@@ -57,15 +57,20 @@ def _fetch_single_stock(code4: str) -> dict:
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
         current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
         
+        # 財務データ
         eps_trail = _safe_float(info.get("trailingEps"), None) 
         eps_fwd   = _safe_float(info.get("forwardEps"), None)
         bps       = _safe_float(info.get("bookValue"), None)
-        
         roe = _safe_float(info.get("returnOnEquity"), None) 
         roa = _safe_float(info.get("returnOnAssets"), None) 
         market_cap = _safe_float(info.get("marketCap"), None)
         avg_volume = _safe_float(info.get("averageVolume"), None)
         
+        # ETF/REIT判定用の情報を取得
+        q_type = info.get("quoteType", "").upper() # EQUITY, ETF, MUTUALFUNDなど
+        long_name = info.get("longName", "").upper()
+        short_name = info.get("shortName", "").upper()
+
         pbr = (price / bps) if (price and bps and bps > 0) else None
         volume_ratio = (current_volume / avg_volume) if (avg_volume and avg_volume > 0) else 0
         big_prob = _calc_big_player_score(market_cap, pbr, volume_ratio)
@@ -81,36 +86,53 @@ def _fetch_single_stock(code4: str) -> dict:
         name = info.get("longName", info.get("shortName", f"({code4})"))
         weather = _get_weather_icon(roe, roa)
 
+        # ---------------------------------------------------
+        # 計算ロジック & メッセージ判定
+        # ---------------------------------------------------
         fair_value = None
         note = "OK"
         calc_eps = None
         is_forecast = False
 
-        if eps_trail is not None and eps_trail > 0:
-            calc_eps = eps_trail
-        elif eps_fwd is not None and eps_fwd > 0:
-            calc_eps = eps_fwd
-            is_forecast = True
-        
-        if not price: 
+        # ★ここが新機能：ETF/REIT判定
+        is_fund = False
+        # 1. システム上の区分がETFか投信ならアウト
+        if q_type in ["ETF", "MUTUALFUND"]:
+            is_fund = True
+        # 2. 名前にETF, REIT, リートが含まれていたらアウト（漏れ防止）
+        elif "ETF" in short_name or "REIT" in short_name or "リート" in long_name:
+            is_fund = True
+
+        # 判定開始
+        if is_fund:
+            note = "ETF/REIT等のため対象外"
+        elif not price: 
             note = "現在値取得不可"
         elif bps is None: 
             note = "財務データ不足"
-        elif calc_eps is None: 
-            if eps_trail is not None and eps_trail < 0:
-                 note = "赤字のため算出不可"
-            else:
-                 note = "算出不能"
         else:
-            product = 22.5 * calc_eps * bps
-            if product > 0:
-                fair_value = round(math.sqrt(product), 0)
-                if is_forecast:
-                    note = f"※予想EPS {calc_eps:,.1f} × BPS {bps:,.0f}"
+            # 実績EPSか予想EPSか
+            if eps_trail is not None and eps_trail > 0:
+                calc_eps = eps_trail
+            elif eps_fwd is not None and eps_fwd > 0:
+                calc_eps = eps_fwd
+                is_forecast = True
+            
+            if calc_eps is None: 
+                if eps_trail is not None and eps_trail < 0:
+                     note = "赤字のため算出不可"
                 else:
-                    note = f"EPS {calc_eps:,.1f} × BPS {bps:,.0f}"
+                     note = "算出不能"
             else:
-                note = "資産毀損リスクあり"
+                product = 22.5 * calc_eps * bps
+                if product > 0:
+                    fair_value = round(math.sqrt(product), 0)
+                    if is_forecast:
+                        note = f"※予想EPS {calc_eps:,.1f} × BPS {bps:,.0f}"
+                    else:
+                        note = f"EPS {calc_eps:,.1f} × BPS {bps:,.0f}"
+                else:
+                    note = "資産毀損リスクあり"
         
         upside_pct = None
         if price and fair_value:
@@ -125,13 +147,10 @@ def _fetch_single_stock(code4: str) -> dict:
     except Exception as e:
         return {"code": code4, "name": "エラー", "note": "取得失敗"}
 
-# ★ここが変更点！ ttl=43200 (12時間) に設定
-# これで一度調べたデータは半日間使い回すので、サーバー負荷が激減します。
+# 12時間キャッシュ
 @st.cache_data(ttl=43200, show_spinner=False)
 def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
-    """並列処理で一括計算（安定重視・長時間キャッシュ）"""
     out = {}
-    # 同時アクセス数も2に抑えて安全運転
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         futures = {executor.submit(_fetch_single_stock, code): code for code in codes}
         for f in concurrent.futures.as_completed(futures):
