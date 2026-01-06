@@ -60,7 +60,13 @@ def _fetch_single_stock(code4: str) -> dict:
         pbr = (price / bps) if (price and bps and bps > 0) else None
         volume_ratio = (current_volume / avg_volume) if (avg_volume and avg_volume > 0) else 0
         big_prob = _calc_big_player_score(market_cap, pbr, volume_ratio)
-        div_rate = (_safe_float(info.get("dividendRate"), 0) / price * 100) if (price and price > 0) else None
+        
+        # ★修正ポイント：配当がない場合はNone（—）のままにする
+        div_rate = None
+        raw_div = info.get("dividendRate") # 生データを取得
+        if raw_div is not None and price and price > 0:
+            div_rate = (raw_div / price) * 100.0
+
         rev_growth = _safe_float(info.get("revenueGrowth"), None)
         if rev_growth: rev_growth *= 100.0
 
@@ -79,7 +85,6 @@ def _fetch_single_stock(code4: str) -> dict:
                 note = f"EPS {eps:,.1f} × BPS {bps:,.0f}"
             else: note = "算出不可"
         
-        # 上昇余地計算
         upside_pct = None
         if price and fair_value:
              upside_pct = round((fair_value / price - 1.0) * 100.0, 2)
