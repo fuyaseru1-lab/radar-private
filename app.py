@@ -147,7 +147,7 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
         rows.append({"ticker": ",".join(codes), "note": "エラー", "value": bundle})
 
     df = pd.DataFrame(rows)
-    cols = ["name", "weather", "price", "fair_value", "upside_pct", "dividend", "growth", "market_cap", "big_prob", "note"]
+    cols = ["name", "weather", "price", "fair_value", "upside_pct", "dividend", "dividend_amount", "growth", "market_cap", "big_prob", "note"]
     for col in cols:
         if col not in df.columns: df[col] = None
 
@@ -155,7 +155,10 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["fair_value_num"] = df["fair_value"].apply(_as_float)
     df["upside_pct_num"] = df["upside_pct"].apply(_as_float)
     df["upside_yen_num"] = df["fair_value_num"] - df["price_num"]
+    
     df["div_num"] = df["dividend"].apply(_as_float)
+    df["div_amount_num"] = df["dividend_amount"].apply(_as_float) # ★配当額の数値化
+    
     df["growth_num"] = df["growth"].apply(_as_float)
     df["mc_num"] = df["market_cap"].apply(_as_float)
     df["prob_num"] = df["big_prob"].apply(_as_float)
@@ -172,16 +175,21 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["上昇余地（円）"] = df["upside_yen_num"].apply(fmt_yen_diff)
     df["上昇余地（％）"] = df["upside_pct_num"].apply(fmt_pct)
     df["評価"] = df["stars"]
+    
     df["配当利回り"] = df["div_num"].apply(fmt_pct)
+    df["年間配当"] = df["div_amount_num"].apply(fmt_yen) # ★ここに追加！
+    
     df["事業の勢い"] = df["growth_num"].apply(fmt_pct)
     df["時価総額"] = df["mc_num"].apply(fmt_market_cap)
     df["大口介入期待度"] = df["prob_num"].apply(fmt_big_prob)
     df["根拠【グレアム数】"] = df["note"].fillna("")
 
     df.index = df.index + 1
+    
+    # ★表示する順番を調整
     show_cols = [
         "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", 
-        "配当利回り", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
+        "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
     ]
     return df[show_cols]
 
@@ -210,6 +218,16 @@ with st.expander("★ 評価基準（AI自動判定）", expanded=True):
         """)
 
 st.subheader("🔢 銘柄入力")
+st.warning("""
+**⚠️ 利用上のご注意（重要）**
+このツールは多くのメンバーでサーバーを共有しています。
+**「短時間に何度も分析ボタンを押す（連打）」** と、Yahoo側のセキュリティ機能により、
+**一時的に全員がエラー（Too Many Requests）になり使えなくなります。**
+
+エラーが出た場合は、**5分〜10分ほど時間を空けてから** 再度お試しください。
+譲り合ってのご利用をお願いいたします。🙇
+""")
+
 raw_text = st.text_area(
     "分析したい証券コードを入力してください（複数可・改行区切り推奨）",
     height=150,
