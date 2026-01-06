@@ -3,8 +3,8 @@ from typing import Dict, List, Any, Optional
 import math
 import concurrent.futures
 import streamlit as st
-import time   # ★追加：休憩用
-import random # ★追加：ランダムな時間を作る用
+import time
+import random
 
 try:
     import yfinance as yf
@@ -41,10 +41,9 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    """1銘柄分の取得ロジック（安定版）"""
+    """1銘柄分の取得ロジック（安定版・ハイブリッド計算）"""
     
-    # ★追加：アクセス制限対策
-    # 0.5秒〜1.5秒の間でランダムに待機してからアクセスする（人間のフリ）
+    # アクセス制限対策：人間らしく振る舞うための休憩
     time.sleep(random.uniform(0.5, 1.5))
 
     ticker = f"{code4}.T"
@@ -126,11 +125,13 @@ def _fetch_single_stock(code4: str) -> dict:
     except Exception as e:
         return {"code": code4, "name": "エラー", "note": "取得失敗"}
 
-@st.cache_data(ttl=3600, show_spinner=False)
+# ★ここが変更点！ ttl=43200 (12時間) に設定
+# これで一度調べたデータは半日間使い回すので、サーバー負荷が激減します。
+@st.cache_data(ttl=43200, show_spinner=False)
 def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
-    """並列処理で一括計算（安定重視）"""
+    """並列処理で一括計算（安定重視・長時間キャッシュ）"""
     out = {}
-    # ★ここを修正：10人同時(max_workers=10)は速すぎるので、2人同時(max_workers=2)に制限
+    # 同時アクセス数も2に抑えて安全運転
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         futures = {executor.submit(_fetch_single_stock, code): code for code in codes}
         for f in concurrent.futures.as_completed(futures):
