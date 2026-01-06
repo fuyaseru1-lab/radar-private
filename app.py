@@ -191,6 +191,7 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 st.caption("証券コードを入力すると、理論株価・配当・成長性・大口介入期待度を一括表示します。")
 
+# ★修正ポイント1：評価基準の中に「割高判定について」の項目を追加
 with st.expander("★ 評価基準（AI自動判定）", expanded=True):
     st.markdown("""
 評価（★）は **上昇余地%** を基準にしています。
@@ -204,9 +205,21 @@ with st.expander("★ 評価基準（AI自動判定）", expanded=True):
 
 ※ 理論株価がマイナスの場合や取得できない場合は **評価不能（—）** になります。
 """)
+    # ↓↓ ここに画像を元にした一言一句同じアドバイスを追加 ↓↓
+    with st.expander("🤔 「割高」判定ばかり出る…という方へ（クリックで読む）"):
+        st.markdown("""
+        :red[**※ 割高だから悪いというわけではありません。**] むしろ優秀な企業だから株価が理論値をはるかに上回っている可能性もあります。 もしお持ちの銘柄で割高判定を受けた場合は、**売り場の模索をするなどの指標**としてお考えくださいませ。
+        """)
 
 st.subheader("🔢 銘柄入力")
-raw_text = st.text_area("分析したい証券コード（改行区切りで複数OK）", height=150, placeholder="7203\n8306\n9984")
+
+# ★修正ポイント2：入力例（placeholder）を画像と完全に一致させました（285Aなど）
+raw_text = st.text_area(
+    "分析したい証券コードを入力してください（複数可・改行区切り推奨）",
+    height=150,
+    placeholder="例：\n7203\n9984\n285A\n（Excelなどからコピペも可能です）"
+)
+
 run_btn = st.button("🚀 AIで分析開始！", type="primary")
 
 st.divider()
@@ -230,9 +243,6 @@ if run_btn:
     styled_df = df.style.map(highlight_errors, subset=["銘柄名"])
     st.dataframe(styled_df, use_container_width=True)
 
-    # -----------------------------
-    # ★ここから下を、元のリッチなテキストに戻しました！
-    # -----------------------------
     info_text = (
         "**※ 評価が表示されない（—）銘柄について**\n\n"
         "赤字決算や財務データが不足している銘柄は、\n\n"
