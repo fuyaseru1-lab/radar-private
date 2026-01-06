@@ -38,9 +38,8 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
         elif volume_ratio >= 1.5: score += 10
     return min(95, score)
 
-@st.cache_data(ttl=3600, max_entries=500, show_spinner=False)
 def _fetch_single_stock(code4: str) -> dict:
-    """1銘柄分の取得・計算ロジック"""
+    """1銘柄分の取得ロジック"""
     ticker = f"{code4}.T"
     try:
         t = yf.Ticker(ticker)
@@ -72,28 +71,37 @@ def _fetch_single_stock(code4: str) -> dict:
         note = "OK"
         if not price: note = "現在値取得不可"
         elif eps is None or bps is None: note = "財務データ不足"
-        elif eps < 0: note = "赤字決算のため算出不可"
+        elif eps < 0: note = "赤字"
         else:
             product = 22.5 * eps * bps
             if product > 0:
                 fair_value = round(math.sqrt(product), 0)
                 note = f"EPS {eps:,.1f} × BPS {bps:,.0f}"
             else: note = "算出不可"
+        
+        # 上昇余地計算
+        upside_pct = None
+        if price and fair_value:
+             upside_pct = round((fair_value / price - 1.0) * 100.0, 2)
 
         return {
             "code": code4, "name": name, "weather": weather, "price": price,
-            "fair_value": fair_value, "note": note, "dividend": div_rate,
-            "growth": rev_growth, "market_cap": market_cap, "big_prob": big_prob
+            "fair_value": fair_value, "upside_pct": upside_pct, "note": note, 
+            "dividend": div_rate, "growth": rev_growth, 
+            "market_cap": market_cap, "big_prob": big_prob
         }
     except:
         return {"code": code4, "name": "エラー", "note": "取得失敗"}
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     """並列処理で一括計算"""
     out = {}
+    # 同時に10件アクセスして爆速化
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = [executor.submit(_fetch_single_stock, code) for code in codes]
+        futures = {executor.submit(_fetch_single_stock, code): code for code in codes}
         for f in concurrent.futures.as_completed(futures):
             res = f.result()
-            out[res["code"]] = res
+            # リッチUI側が期待するキー形式に合わせる
+            out[futures[f]] = res
     return out
