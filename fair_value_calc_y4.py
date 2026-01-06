@@ -3,8 +3,8 @@ from typing import Dict, List, Any, Optional
 import math
 import concurrent.futures
 import streamlit as st
-import time
-import random
+import time   # 休憩用
+import random # ランダム時間用
 
 try:
     import yfinance as yf
@@ -41,8 +41,9 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    """1銘柄分の取得ロジック（ETF対応・配当額追加版）"""
+    """1銘柄分の取得ロジック（最強版：Wait入り）"""
     
+    # ★安全装置：0.5秒〜1.5秒ほどランダムに休憩してアクセス制限を回避
     time.sleep(random.uniform(0.5, 1.5))
 
     ticker = f"{code4}.T"
@@ -72,9 +73,8 @@ def _fetch_single_stock(code4: str) -> dict:
         volume_ratio = (current_volume / avg_volume) if (avg_volume and avg_volume > 0) else 0
         big_prob = _calc_big_player_score(market_cap, pbr, volume_ratio)
         
-        # ★ここが変更点：配当の「金額」も取得する
         div_rate = None
-        raw_div = info.get("dividendRate") # これが「年間配当額（円）」
+        raw_div = info.get("dividendRate")
         if raw_div is not None and price and price > 0:
             div_rate = (raw_div / price) * 100.0
 
@@ -131,15 +131,17 @@ def _fetch_single_stock(code4: str) -> dict:
         return {
             "code": code4, "name": name, "weather": weather, "price": price,
             "fair_value": fair_value, "upside_pct": upside_pct, "note": note, 
-            "dividend": div_rate, "dividend_amount": raw_div, # ★ここに追加！
+            "dividend": div_rate, "dividend_amount": raw_div,
             "growth": rev_growth, "market_cap": market_cap, "big_prob": big_prob
         }
     except Exception as e:
         return {"code": code4, "name": "エラー", "note": "取得失敗"}
 
+# ★最強設定：12時間の記憶保持 (ttl=43200)
 @st.cache_data(ttl=43200, show_spinner=False)
 def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     out = {}
+    # ★安全装置：同時アクセスは2つまで (max_workers=2)
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         futures = {executor.submit(_fetch_single_stock, code): code for code in codes}
         for f in concurrent.futures.as_completed(futures):
