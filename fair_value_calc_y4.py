@@ -41,9 +41,8 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    """1銘柄分の取得ロジック（ETF/REIT判定入り）"""
+    """1銘柄分の取得ロジック（ETF対応・配当額追加版）"""
     
-    # アクセス制限対策
     time.sleep(random.uniform(0.5, 1.5))
 
     ticker = f"{code4}.T"
@@ -57,7 +56,6 @@ def _fetch_single_stock(code4: str) -> dict:
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
         current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
         
-        # 財務データ
         eps_trail = _safe_float(info.get("trailingEps"), None) 
         eps_fwd   = _safe_float(info.get("forwardEps"), None)
         bps       = _safe_float(info.get("bookValue"), None)
@@ -66,8 +64,7 @@ def _fetch_single_stock(code4: str) -> dict:
         market_cap = _safe_float(info.get("marketCap"), None)
         avg_volume = _safe_float(info.get("averageVolume"), None)
         
-        # ETF/REIT判定用の情報を取得
-        q_type = info.get("quoteType", "").upper() # EQUITY, ETF, MUTUALFUNDなど
+        q_type = info.get("quoteType", "").upper()
         long_name = info.get("longName", "").upper()
         short_name = info.get("shortName", "").upper()
 
@@ -75,8 +72,9 @@ def _fetch_single_stock(code4: str) -> dict:
         volume_ratio = (current_volume / avg_volume) if (avg_volume and avg_volume > 0) else 0
         big_prob = _calc_big_player_score(market_cap, pbr, volume_ratio)
         
+        # ★ここが変更点：配当の「金額」も取得する
         div_rate = None
-        raw_div = info.get("dividendRate")
+        raw_div = info.get("dividendRate") # これが「年間配当額（円）」
         if raw_div is not None and price and price > 0:
             div_rate = (raw_div / price) * 100.0
 
@@ -86,24 +84,17 @@ def _fetch_single_stock(code4: str) -> dict:
         name = info.get("longName", info.get("shortName", f"({code4})"))
         weather = _get_weather_icon(roe, roa)
 
-        # ---------------------------------------------------
-        # 計算ロジック & メッセージ判定
-        # ---------------------------------------------------
         fair_value = None
         note = "OK"
         calc_eps = None
         is_forecast = False
-
-        # ★ここが新機能：ETF/REIT判定
         is_fund = False
-        # 1. システム上の区分がETFか投信ならアウト
+
         if q_type in ["ETF", "MUTUALFUND"]:
             is_fund = True
-        # 2. 名前にETF, REIT, リートが含まれていたらアウト（漏れ防止）
         elif "ETF" in short_name or "REIT" in short_name or "リート" in long_name:
             is_fund = True
 
-        # 判定開始
         if is_fund:
             note = "ETF/REIT等のため対象外"
         elif not price: 
@@ -111,7 +102,6 @@ def _fetch_single_stock(code4: str) -> dict:
         elif bps is None: 
             note = "財務データ不足"
         else:
-            # 実績EPSか予想EPSか
             if eps_trail is not None and eps_trail > 0:
                 calc_eps = eps_trail
             elif eps_fwd is not None and eps_fwd > 0:
@@ -141,13 +131,12 @@ def _fetch_single_stock(code4: str) -> dict:
         return {
             "code": code4, "name": name, "weather": weather, "price": price,
             "fair_value": fair_value, "upside_pct": upside_pct, "note": note, 
-            "dividend": div_rate, "growth": rev_growth, 
-            "market_cap": market_cap, "big_prob": big_prob
+            "dividend": div_rate, "dividend_amount": raw_div, # ★ここに追加！
+            "growth": rev_growth, "market_cap": market_cap, "big_prob": big_prob
         }
     except Exception as e:
         return {"code": code4, "name": "エラー", "note": "取得失敗"}
 
-# 12時間キャッシュ
 @st.cache_data(ttl=43200, show_spinner=False)
 def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     out = {}
