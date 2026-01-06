@@ -39,7 +39,7 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    """1銘柄分の取得ロジック"""
+    """1銘柄分の取得ロジック（ハイブリッド計算版）"""
     ticker = f"{code4}.T"
     try:
         t = yf.Ticker(ticker)
@@ -50,8 +50,12 @@ def _fetch_single_stock(code4: str) -> dict:
         info = t.info
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
         current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
-        eps = _safe_float(info.get("trailingEps"), None) 
-        bps = _safe_float(info.get("bookValue"), None)
+        
+        # データ取得
+        eps_trail = _safe_float(info.get("trailingEps"), None) # 実績EPS
+        eps_fwd   = _safe_float(info.get("forwardEps"), None)  # 予想EPS
+        bps       = _safe_float(info.get("bookValue"), None)
+        
         roe = _safe_float(info.get("returnOnEquity"), None) 
         roa = _safe_float(info.get("returnOnAssets"), None) 
         market_cap = _safe_float(info.get("marketCap"), None)
@@ -61,9 +65,9 @@ def _fetch_single_stock(code4: str) -> dict:
         volume_ratio = (current_volume / avg_volume) if (avg_volume and avg_volume > 0) else 0
         big_prob = _calc_big_player_score(market_cap, pbr, volume_ratio)
         
-        # ★修正ポイント：配当がない場合はNone（—）のままにする
+        # 配当表示修正
         div_rate = None
-        raw_div = info.get("dividendRate") # 生データを取得
+        raw_div = info.get("dividendRate")
         if raw_div is not None and price and price > 0:
             div_rate = (raw_div / price) * 100.0
 
@@ -73,17 +77,44 @@ def _fetch_single_stock(code4: str) -> dict:
         name = info.get("longName", info.get("shortName", f"({code4})"))
         weather = _get_weather_icon(roe, roa)
 
+        # ---------------------------------------------------
+        # ★ここから新ロジック：実績ダメなら予想を使う
+        # ---------------------------------------------------
         fair_value = None
         note = "OK"
-        if not price: note = "現在値取得不可"
-        elif eps is None or bps is None: note = "財務データ不足"
-        elif eps < 0: note = "赤字のため算出不可"
+        calc_eps = None
+        is_forecast = False # 予想を使ったかどうかのフラグ
+
+        # 1. まず実績EPSをチェック
+        if eps_trail is not None and eps_trail > 0:
+            calc_eps = eps_trail
+        # 2. 実績がダメ（赤字orなし）で、予想EPSがあるならそっち採用
+        elif eps_fwd is not None and eps_fwd > 0:
+            calc_eps = eps_fwd
+            is_forecast = True
+        
+        # 計算開始
+        if not price: 
+            note = "現在値取得不可"
+        elif bps is None: 
+            note = "財務データ不足"
+        elif calc_eps is None: 
+            # 実績も予想もダメだった場合
+            if eps_trail is not None and eps_trail < 0:
+                 note = "赤字のため算出不可"
+            else:
+                 note = "算出不能"
         else:
-            product = 22.5 * eps * bps
+            # EPS(採用値) × BPS で計算
+            product = 22.5 * calc_eps * bps
             if product > 0:
                 fair_value = round(math.sqrt(product), 0)
-                note = f"EPS {eps:,.1f} × BPS {bps:,.0f}"
-            else: note = "算出不可"
+                if is_forecast:
+                    note = f"※予想EPS {calc_eps:,.1f} × BPS {bps:,.0f}"
+                else:
+                    note = f"EPS {calc_eps:,.1f} × BPS {bps:,.0f}"
+            else:
+                note = "資産毀損リスクあり"
         
         upside_pct = None
         if price and fair_value:
