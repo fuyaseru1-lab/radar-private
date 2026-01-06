@@ -3,6 +3,8 @@ from typing import Dict, List, Any, Optional
 import math
 import concurrent.futures
 import streamlit as st
+import time   # ★追加：休憩用
+import random # ★追加：ランダムな時間を作る用
 
 try:
     import yfinance as yf
@@ -39,21 +41,25 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    """1銘柄分の取得ロジック（ハイブリッド計算版）"""
+    """1銘柄分の取得ロジック（安定版）"""
+    
+    # ★追加：アクセス制限対策
+    # 0.5秒〜1.5秒の間でランダムに待機してからアクセスする（人間のフリ）
+    time.sleep(random.uniform(0.5, 1.5))
+
     ticker = f"{code4}.T"
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period="5d")
         if hist is None or hist.empty:
-            return {"code": code4, "name": "存在しない銘柄", "note": "—"}
+            return {"code": code4, "name": "エラー(制限中)", "note": "アクセス集中"}
         
         info = t.info
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
         current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
         
-        # データ取得
-        eps_trail = _safe_float(info.get("trailingEps"), None) # 実績EPS
-        eps_fwd   = _safe_float(info.get("forwardEps"), None)  # 予想EPS
+        eps_trail = _safe_float(info.get("trailingEps"), None) 
+        eps_fwd   = _safe_float(info.get("forwardEps"), None)
         bps       = _safe_float(info.get("bookValue"), None)
         
         roe = _safe_float(info.get("returnOnEquity"), None) 
@@ -65,7 +71,6 @@ def _fetch_single_stock(code4: str) -> dict:
         volume_ratio = (current_volume / avg_volume) if (avg_volume and avg_volume > 0) else 0
         big_prob = _calc_big_player_score(market_cap, pbr, volume_ratio)
         
-        # 配当表示修正
         div_rate = None
         raw_div = info.get("dividendRate")
         if raw_div is not None and price and price > 0:
@@ -77,35 +82,27 @@ def _fetch_single_stock(code4: str) -> dict:
         name = info.get("longName", info.get("shortName", f"({code4})"))
         weather = _get_weather_icon(roe, roa)
 
-        # ---------------------------------------------------
-        # ★ここから新ロジック：実績ダメなら予想を使う
-        # ---------------------------------------------------
         fair_value = None
         note = "OK"
         calc_eps = None
-        is_forecast = False # 予想を使ったかどうかのフラグ
+        is_forecast = False
 
-        # 1. まず実績EPSをチェック
         if eps_trail is not None and eps_trail > 0:
             calc_eps = eps_trail
-        # 2. 実績がダメ（赤字orなし）で、予想EPSがあるならそっち採用
         elif eps_fwd is not None and eps_fwd > 0:
             calc_eps = eps_fwd
             is_forecast = True
         
-        # 計算開始
         if not price: 
             note = "現在値取得不可"
         elif bps is None: 
             note = "財務データ不足"
         elif calc_eps is None: 
-            # 実績も予想もダメだった場合
             if eps_trail is not None and eps_trail < 0:
                  note = "赤字のため算出不可"
             else:
                  note = "算出不能"
         else:
-            # EPS(採用値) × BPS で計算
             product = 22.5 * calc_eps * bps
             if product > 0:
                 fair_value = round(math.sqrt(product), 0)
@@ -127,13 +124,14 @@ def _fetch_single_stock(code4: str) -> dict:
             "market_cap": market_cap, "big_prob": big_prob
         }
     except Exception as e:
-        return {"code": code4, "name": "エラー", "note": str(e)}
+        return {"code": code4, "name": "エラー", "note": "取得失敗"}
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
-    """並列処理で一括計算"""
+    """並列処理で一括計算（安定重視）"""
     out = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    # ★ここを修正：10人同時(max_workers=10)は速すぎるので、2人同時(max_workers=2)に制限
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         futures = {executor.submit(_fetch_single_stock, code): code for code in codes}
         for f in concurrent.futures.as_completed(futures):
             try:
