@@ -4,7 +4,7 @@ import unicodedata
 from typing import Any, Dict, List, Optional
 import pandas as pd
 import streamlit as st
-import fair_value_calc_y4 as fv # 計算エンジン読み込み
+import fair_value_calc_y4 as fv  # 計算エンジン
 
 # -----------------------------
 # UI設定
@@ -18,15 +18,15 @@ hide_streamlit_style = """
             header {visibility: hidden;}
             .stDeployButton {display:none;}
             
-            /* フヤセル風ボタン */
+            /* カード風デザイン */
             div.stButton > button:first-child {
                 background-color: #ff4b4b;
                 color: white;
                 font-weight: bold;
                 border-radius: 12px;
                 border: none;
-                padding: 0.5rem 1rem;
-                width: 100%;
+                padding: 0.8rem 2rem;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             }
             div.stButton > button:hover {
                 background-color: #e63e3e;
@@ -34,7 +34,6 @@ hide_streamlit_style = """
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
 
 # -----------------------------
 # 関数群
@@ -50,7 +49,6 @@ def sanitize_codes(raw_codes: List[str]) -> List[str]:
         m = re.search(r"[0-9A-Z]{4}", s)
         if m:
             cleaned.append(m.group(0))
-            
     uniq: List[str] = []
     for c in cleaned:
         if c not in uniq: uniq.append(c)
@@ -137,7 +135,6 @@ def highlight_errors(val):
 # -----------------------------
 def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
-
     if isinstance(bundle, dict):
         for code in codes:
             v = bundle.get(code)
@@ -150,7 +147,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
         rows.append({"ticker": ",".join(codes), "note": "エラー", "value": bundle})
 
     df = pd.DataFrame(rows)
-
     cols = ["name", "weather", "price", "fair_value", "upside_pct", "dividend", "growth", "market_cap", "big_prob", "note"]
     for col in cols:
         if col not in df.columns: df[col] = None
@@ -159,7 +155,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["fair_value_num"] = df["fair_value"].apply(_as_float)
     df["upside_pct_num"] = df["upside_pct"].apply(_as_float)
     df["upside_yen_num"] = df["fair_value_num"] - df["price_num"]
-    
     df["div_num"] = df["dividend"].apply(_as_float)
     df["growth_num"] = df["growth"].apply(_as_float)
     df["mc_num"] = df["market_cap"].apply(_as_float)
@@ -177,28 +172,18 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["上昇余地（円）"] = df["upside_yen_num"].apply(fmt_yen_diff)
     df["上昇余地（％）"] = df["upside_pct_num"].apply(fmt_pct)
     df["評価"] = df["stars"]
-    
     df["配当利回り"] = df["div_num"].apply(fmt_pct)
     df["事業の勢い"] = df["growth_num"].apply(fmt_pct)
-    
     df["時価総額"] = df["mc_num"].apply(fmt_market_cap)
     df["大口介入期待度"] = df["prob_num"].apply(fmt_big_prob)
-    
     df["根拠【グレアム数】"] = df["note"].fillna("")
 
     df.index = df.index + 1
-
     show_cols = [
-        "証券コード", "銘柄名", 
-        "現在値", "理論株価", 
-        "上昇余地（％）", "評価", 
-        "配当利回り", "事業の勢い", 
-        "業績", 
-        "時価総額", "大口介入期待度", 
-        "根拠【グレアム数】"
+        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", 
+        "配当利回り", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
     ]
     return df[show_cols]
-
 
 # -----------------------------
 # メイン画面
@@ -207,8 +192,7 @@ st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 st.caption("証券コードを入力すると、理論株価・配当・成長性・大口介入期待度を一括表示します。")
 
 with st.expander("★ 評価基準（AI自動判定）", expanded=True):
-    st.markdown(
-        """
+    st.markdown("""
 評価（★）は **上昇余地%** を基準にしています。
 
 - :red[★★★★★：**お宝**（上昇余地 **+50%** 以上）]
@@ -219,18 +203,12 @@ with st.expander("★ 評価基準（AI自動判定）", expanded=True):
 - ☆☆☆☆☆：**割高**（上昇余地 **0% 未満**）
 
 ※ 理論株価がマイナスの場合や取得できない場合は **評価不能（—）** になります。
-"""
-    )
+""")
 
 st.subheader("🔢 銘柄入力")
-
-raw_text = st.text_area(
-    "分析したい証券コードを入力してください（複数可・改行区切り推奨）",
-    height=150,
-    placeholder="例：\n7203\n9984\n7777\n（Excelなどからコピペも可能です）"
-)
-
+raw_text = st.text_area("分析したい証券コード（改行区切りで複数OK）", height=150, placeholder="7203\n8306\n9984")
 run_btn = st.button("🚀 AIで分析開始！", type="primary")
+
 st.divider()
 
 if run_btn:
@@ -242,66 +220,93 @@ if run_btn:
 
     with st.spinner("🚀 爆速で分析中..."):
         try:
-            # ここで並列処理版のエンジンを呼び出す
             bundle = fv.calc_fuyaseru_bundle(codes)
         except Exception as e:
-            st.error(f"計算でエラー：{e}")
+            st.error(f"エラー: {e}")
             st.stop()
 
     df = bundle_to_df(bundle, codes)
-
     st.subheader("📊 フヤセルブレイン分析結果")
-    
     styled_df = df.style.map(highlight_errors, subset=["銘柄名"])
     st.dataframe(styled_df, use_container_width=True)
 
+    # -----------------------------
+    # ★ここから下を、元のリッチなテキストに戻しました！
+    # -----------------------------
     info_text = (
         "**※ 評価が表示されない（—）銘柄について**\n\n"
-        "赤字決算や財務データが不足している銘柄（例：7777など）は、\n\n"
-        "投資リスクの観点から自動的に **「評価対象外」** となる場合があります。\n\n"
+        "赤字決算や財務データが不足している銘柄は、\n\n"
+        "投資リスクの観点から自動的に **「評価対象外」** としています。\n\n"
+        "具体的な理由は「根拠」の欄をご確認ください。\n\n"
         "---\n\n"
         "**※ 業績（お天気マーク）の判定基準**\n\n"
-        "☀ **（優良）**：ROE 8%以上 **かつ** ROA 5%以上\n\n"
-        "☁ **（普通）**：黒字だが、優良基準には満たない\n\n"
+        "☀ **（優良）**：ROE 8%以上 **かつ** ROA 5%以上（効率性・健全性ともに最強）\n\n"
+        "☁ **（普通）**：黒字だが、優良基準には満たない（一般的）\n\n"
         "☔ **（赤字）**：ROE マイナス（赤字決算）"
     )
     st.info(info_text, icon="ℹ️")
 
     with st.expander("📚 【豆知識】理論株価の計算根拠（グレアム数）とは？"):
-        st.markdown(
-            """
-            ### 🧙‍♂️ "投資の神様"の師匠が考案した「割安株」の黄金式
-            
-            このツールで算出している理論株価は、**「グレアム数」** をベースにしています。
-            ベンジャミン・グレアムが考案した由緒ある指標です。
-            
-            > **今の株価 ＜ 理論株価（グレアム数）**
-            
-            となっていれば、それは **「実力よりも過小評価されている」** という強力なサインになります。
-            """
-        )
+        st.markdown("""
+        ### 🧙‍♂️ "投資の神様"の師匠が考案した「割安株」の黄金式
+        
+        このツールで算出している理論株価は、**「グレアム数」** という計算式をベースにしています。
+        これは、あの世界最強の投資家 **ウォーレン・バフェットの師匠** であり、
+        「バリュー投資の父」と呼ばれる **ベンジャミン・グレアム** が考案した由緒ある指標です。
+        
+        #### 💡 何がすごいの？
+        多くの投資家は「利益（PER）」だけで株を見がちですが、グレアム数は
+        **「企業の利益（稼ぐ力）」** と **「純資産（持っている財産）」** の両面から、
+        その企業が本来持っている **「真の実力値（適正価格）」** を厳しく割り出します。
+        
+        > **今の株価 ＜ 理論株価（グレアム数）**
+        
+        となっていれば、それは **「実力よりも過小評価されている（バーゲンセール中）」** という強力なサインになります。
+        """)
 
     with st.expander("🚀 【注目】なぜ「事業の勢い（売上成長率）」を見るの？"):
-        st.markdown(
-            """
-            ### 📈 株価を押し上げる"真のエンジン"は売上にあり！
-            
-            - **🚀 +30% 以上**： **【超・急成長】**
-            - **🏃 +10% 〜 +30%**： **【成長軌道】**
-            - **🚶 0% 〜 +10%**： **【安定・成熟】**
-            - **📉 マイナス**： **【衰退・縮小】**
-            """
-        )
+        st.markdown("""
+        ### 📈 株価を押し上げる"真のエンジン"は売上にあり！
+        
+        「利益」は経費削減などで一時的に作れますが、**「売上」** の伸びだけは誤魔化せません。
+        売上が伸びているということは、**「その会社の商品が世の中でバカ売れしている」** という最強の証拠だからです。
+        
+        #### 📊 成長スピードの目安（より厳しめのプロ基準）
+        
+        - **🚀 +30% 以上**： **【超・急成長】**
+            - 驚異的な伸びです。将来のスター株候補の可能性がありますが、**期待先行で株価が乱高下するリスク**も高くなります。
+        - **🏃 +10% 〜 +30%**： **【成長軌道】**
+            - 安定してビジネスが拡大しています。安心して見ていられる優良企業のラインです。
+        - **🚶 0% 〜 +10%**： **【安定・成熟】**
+            - 急成長はしていませんが、堅実に稼いでいます。配当狙いの銘柄に多いです。
+        - **📉 マイナス**： **【衰退・縮小】**
+            - 去年より売れていません。ビジネスモデルの転換期か、斜陽産業の可能性があります。
+        
+        > **💡 分析のポイント**
+        > **「赤字 × 急成長」の判断について**
+        > 本来、赤字企業は投資対象外ですが、「事業の勢い」が **+30%** を超えている場合は、
+        > **「将来のシェア獲得のために、あえて広告や研究に大金を投じている（＝今は赤字を掘っている）」** だけの可能性があります。
+        > :red[**ただし、黒字化できないまま倒産するリスクもあるため、上級者向けの「ハイリスク・ハイリターン枠」として慎重に見る必要があります。**]
+        """)
 
     with st.expander("🌊 ファンドや機関（大口）の\"動き\"を検知する先乗り指標"):
-        st.markdown(
-            """
-            時価総額や出来高の異常検知を組み合わせ、**「大口投資家が仕掛けやすい条件」** が揃っているかを%で表示します。
-            
-            #### 🎯 ゴールデンゾーン（時価総額 500億〜3000億円）
-            機関投資家等が一番動きやすく、TOB（買収）のターゲットにもなりやすい規模感。
-            
-            #### ⚡ 出来高急増（ボリュームスパイク）
-            今日の出来高が、普段の平均より2倍以上ある場合、裏で何かが起きている可能性があります。
-            """
-        )
+        st.markdown("""
+        時価総額や出来高の異常検知を組み合わせ、**「大口投資家が仕掛けやすい（買収や買い上げを狙いやすい）条件」** が揃っているかを%で表示します。
+        
+        ### 🔍 判定ロジック
+        **先乗り（先回り）理論、季節性、対角性、テーマ性、ファンド動向、アクティビスト検知、企業成長性など、ニッチ性、株大量保有条件、あらゆる大口介入シグナルを自動で検出する独自ロジックを各項目ごとにポイント制にしてパーセンテージを算出する次世代の指数**
+        
+        #### 🎯 ゴールデンゾーン（時価総額 500億〜3000億円）
+        機関投資家等が一番動きやすく、TOB（買収）のターゲットにもなりやすい「おいしい規模感」。
+        
+        #### 📉 PBR 1倍割れ（バーゲンセール）
+        「会社を解散して現金を配った方がマシ」という超割安状態。買収の標的にされやすい。
+        
+        #### ⚡ 出来高急増（ボリュームスパイク）
+        今日の出来高が、普段の平均より2倍以上ある場合、裏で何かが起きている（誰かが集めている）可能性大！
+        **独自の先乗り（先回り）法を完全数値化に成功！**
+        
+        :fire: **80%以上は「激アツ」** 何らかの材料（ニュース）が出る前触れか、水面下で大口が集めている可能性があります。
+        
+        **大口の買い上げこそ暴騰のチャンスです。この指標もしっかりご確認ください。**
+        """)
