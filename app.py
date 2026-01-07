@@ -25,7 +25,7 @@ except Exception:
 # ==========================================
 st.set_page_config(page_title="フヤセルブレイン - AI理論株価分析ツール", page_icon="📈", layout="wide")
 
-# ★CSS：文字色対策（黒固定）とチャート調整のみ残す
+# ★CSS：文字色黒固定・チャート調整
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -33,7 +33,6 @@ hide_streamlit_style = """
             header {visibility: hidden;}
             .stDeployButton {display:none;}
             
-            /* カード風デザイン */
             div.stButton > button:first-child {
                 background-color: #ff4b4b;
                 color: white;
@@ -61,7 +60,7 @@ hide_streamlit_style = """
                 color: #31333F;
             }
             
-            /* 全体の文字色を濃い色に強制（ダークモード対策） */
+            /* 文字色を黒(#31333F)に固定 */
             .stApp, .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown span, .stMarkdown div, .stDataFrame {
                 color: #31333F !important;
                 background-color: #ffffff !important;
@@ -99,7 +98,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 📈 チャート描画関数（固定設定あり）
+# 📈 チャート描画関数
 # -----------------------------
 def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist = ticker_data.get("hist_data")
@@ -136,7 +135,6 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     if fair_value:
         fig.add_hline(y=fair_value, line_dash="dash", line_color="white", annotation_text="理論株価", annotation_position="top left")
 
-    # チャート固定設定
     fig.update_layout(title=f"📊 {name} ({code})", height=450, showlegend=False, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=40, b=10), dragmode=False)
     fig.update_xaxes(fixedrange=True) 
     fig.update_yaxes(fixedrange=True)
@@ -161,18 +159,23 @@ def sanitize_codes(raw_codes: List[str]) -> List[str]:
         if c not in uniq: uniq.append(c)
     return uniq
 
+# ★フォーマット関数の修正（nanを—に統一）
 def fmt_yen(x):
+    if x is None or pd.isna(x): return "—"
     try: return f"{float(x):,.0f} 円"
     except: return "—"
 def fmt_yen_diff(x):
+    if x is None or pd.isna(x): return "—"
     try:
         v = float(x)
         return f"+{v:,.0f} 円" if v>=0 else f"▲ {abs(v):,.0f} 円"
     except: return "—"
 def fmt_pct(x):
+    if x is None or pd.isna(x): return "—"
     try: return f"{float(x):.2f}%"
     except: return "—"
 def fmt_market_cap(x):
+    if x is None or pd.isna(x): return "—"
     try:
         v = float(x)
         if v >= 1e12: return f"{v/1e12:.2f} 兆円"
@@ -180,6 +183,7 @@ def fmt_market_cap(x):
         else: return f"{v:,.0f} 円"
     except: return "—"
 def fmt_big_prob(x):
+    if x is None or pd.isna(x): return "—"
     try:
         v = float(x)
         if v >= 80: return f"🔥 {v:.0f}%" 
@@ -188,7 +192,7 @@ def fmt_big_prob(x):
         return f"{v:.0f}%"
     except: return "—"
 def calc_rating_from_upside(upside_pct):
-    if upside_pct is None: return 0
+    if upside_pct is None or pd.isna(upside_pct): return 0
     if upside_pct >= 50: return 5
     if upside_pct >= 30: return 4
     if upside_pct >= 15: return 3
@@ -209,6 +213,9 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
         for code in codes:
             v = bundle.get(code)
             if isinstance(v, dict):
+                # ★文言修正: ETF/REITのため対象外
+                if v.get("note") == "ETF/REIT対象外":
+                     v["note"] = "ETF/REITのため対象外"
                 row = {"ticker": code, **v}
             else:
                 row = {"ticker": code, "note": "形式エラー", "value": v}
@@ -258,10 +265,10 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df.index = df.index + 1
     
-    # ★「詳細」チェックボックス列を追加
+    # ★「詳細」チェックボックス列
     df["詳細"] = False
     
-    # ★以前の並び順に戻す（需給の壁の右に詳細）
+    # ★並び順：需給の壁の右に「詳細」
     show_cols = [
         "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁",
         "詳細", # ★ここ！
@@ -275,7 +282,7 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 # -----------------------------
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 
-# ★評価基準とアイコンの見方
+# ★評価基準（省略なし）
 with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
     st.markdown("""
 ### 1. 割安度評価（★）
@@ -350,7 +357,7 @@ if st.session_state["analysis_bundle"]:
     
     styled_df = df.style.map(highlight_errors, subset=["銘柄名"])
     
-    # ★data_editorに戻してチェックボックスを確実に表示
+    # ★data_editor：詳細チェックボックス付き
     edited_df = st.data_editor(
         styled_df,
         use_container_width=True,
@@ -361,18 +368,15 @@ if st.session_state["analysis_bundle"]:
                 help="チェックするとチャートを表示します",
                 default=False,
             ),
-            # 他の列を編集不可にする
             "証券コード": st.column_config.TextColumn(disabled=True),
             "銘柄名": st.column_config.TextColumn(disabled=True),
         },
         disabled=["証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"]
     )
     
-    # チェックがついている行を探す
     selected_rows = edited_df[edited_df["詳細"] == True]
     
     if not selected_rows.empty:
-        # 一番上の選択行を取得
         selected_code = selected_rows.iloc[0]["証券コード"]
         ticker_data = bundle.get(selected_code)
         
@@ -381,7 +385,7 @@ if st.session_state["analysis_bundle"]:
         draw_wall_chart(ticker_data)
         st.divider()
 
-    # ★評価対象外の説明・お天気マーク
+    # ★評価対象外・お天気マークの説明
     st.info("""
     **※ 評価が表示されない（—）銘柄について**
     赤字決算や財務データが不足している銘柄は、投資リスクの観点から自動的に **「評価対象外」** としています。
@@ -394,7 +398,7 @@ if st.session_state["analysis_bundle"]:
     """)
 
 # -----------------------------
-# ★豆知識コーナー（エクスパンダー）
+# ★豆知識コーナー
 # -----------------------------
 st.divider()
 st.subheader("📚 投資の豆知識・用語解説")
