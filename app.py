@@ -6,6 +6,12 @@ import pandas as pd
 import streamlit as st
 import fair_value_calc_y4 as fv  # 計算エンジン
 
+# ==========================================
+# 🔑 パスワード設定（ここを好きな文字に変えてください）
+# ==========================================
+USER_PASSWORD = "7777"  # 例：ここを変える
+# ==========================================
+
 # -----------------------------
 # UI設定
 # -----------------------------
@@ -49,6 +55,47 @@ hide_streamlit_style = """
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
+# -----------------------------
+# 🔐 認証ロジック（門番）
+# -----------------------------
+def check_password():
+    """パスワードが合っているか確認する関数"""
+    
+    # セッション（記憶）にログイン情報がなければ初期化
+    if "logged_in" not in st.session_state:
+        st.session_state["logged_in"] = False
+
+    # まだログインしていない場合
+    if not st.session_state["logged_in"]:
+        st.markdown("## 🔒 ACCESS RESTRICTED")
+        st.caption("関係者専用ツールのため、パスワード制限をかけています。")
+        
+        # 入力フォーム
+        password_input = st.text_input("パスワードを入力してください", type="password")
+        
+        if st.button("ログイン"):
+            # 入力された文字を「正規化」する
+            # NFKC = 全角を半角に直す
+            # upper = 小文字を大文字に直す
+            input_norm = unicodedata.normalize('NFKC', password_input).upper().strip()
+            secret_norm = unicodedata.normalize('NFKC', USER_PASSWORD).upper().strip()
+            
+            if input_norm == secret_norm:
+                st.session_state["logged_in"] = True
+                st.rerun()  # 画面を再読み込みして中身を表示
+            else:
+                st.error("パスワードが違います 🙅")
+        
+        # ログインできていないなら、ここでプログラムを止める（中身を見せない）
+        st.stop()
+
+# ★ここで認証チェック実行！
+check_password()
+
+# ==========================================
+# ここから下がいつものアプリ本体
+# ==========================================
 
 # -----------------------------
 # 関数群
@@ -194,7 +241,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["評価"] = df["stars"]
     
     df["今買いか？"] = df["signal_icon"].fillna("—")
-    # ★ここを変更しました！
     df["需給の壁（価格帯別出来高）"] = df["volume_wall"].fillna("—")
 
     df["配当利回り"] = df["div_num"].apply(fmt_pct)
@@ -207,7 +253,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df.index = df.index + 1
     
-    # ★表示順を変更：「需給の壁（価格帯別出来高）」を使用
     show_cols = [
         "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁（価格帯別出来高）",
         "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
