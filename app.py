@@ -1,6 +1,7 @@
 import re
 import math
 import unicodedata
+import time  # ★ここ！これを追加し忘れていました！
 from typing import Any, Dict, List, Optional
 import pandas as pd
 import streamlit as st
@@ -9,8 +10,8 @@ import fair_value_calc_y4 as fv  # 計算エンジン
 # ==========================================
 # 🔑 パスワード設定
 # ==========================================
-USER_PASSWORD = "7777"      # 一般ユーザー（閲覧のみ）
-ADMIN_PASSWORD = "77777"    # 管理者（キャッシュ削除ボタンが表示される）
+USER_PASSWORD = "7777"      # 一般ユーザー
+ADMIN_PASSWORD = "77777"    # 管理者（キャッシュ削除可能）
 # ==========================================
 
 # -----------------------------
@@ -81,11 +82,11 @@ def check_password():
             
             if input_norm == admin_norm:
                 st.session_state["logged_in"] = True
-                st.session_state["is_admin"] = True # ★管理フラグON
+                st.session_state["is_admin"] = True
                 st.rerun()
             elif input_norm == user_norm:
                 st.session_state["logged_in"] = True
-                st.session_state["is_admin"] = False # 一般フラグ
+                st.session_state["is_admin"] = False
                 st.rerun()
             else:
                 st.error("パスワードが違います 🙅")
@@ -96,7 +97,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 🔧 管理者メニュー（ここが消えていないか確認！）
+# 🔧 管理者メニュー（エラー修正済み）
 # -----------------------------
 if st.session_state["is_admin"]:
     with st.sidebar:
@@ -105,8 +106,7 @@ if st.session_state["is_admin"]:
         if st.button("🗑️ キャッシュ全削除"):
             st.cache_data.clear()
             st.success("キャッシュを削除しました！")
-            import time
-            time.sleep(1)
+            time.sleep(1) # ここでエラーが出ていました（import timeで解決）
             st.rerun()
 
 # ==========================================
