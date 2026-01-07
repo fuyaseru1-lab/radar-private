@@ -1,7 +1,7 @@
 import re
 import math
 import unicodedata
-import time  # ★エラー修正：ここに追加しました！
+import time  # ★必須：エラー解消
 from typing import Any, Dict, List, Optional
 import pandas as pd
 import streamlit as st
@@ -89,22 +89,23 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 🔧 サイドバー（管理者コマンド入力欄）
+# 🔧 管理者メニュー（サイドバーに常設）
 # -----------------------------
+# ログイン後、左側のサイドバーに常に「管理者メニュー」を表示します
 with st.sidebar:
-    st.header("🔧 設定・管理")
-    
-    # 常に表示される管理者コード入力欄
-    admin_input = st.text_input("管理者コード", type="password", placeholder="管理者のみ入力")
-    
-    # 入力されたコードが 77777 の場合のみボタンを表示
-    if admin_input == ADMIN_CODE:
-        st.success("管理者権限：認証OK")
-        if st.button("🗑️ キャッシュ全削除"):
-            st.cache_data.clear()
-            st.success("キャッシュを削除しました！")
-            time.sleep(1)
-            st.rerun()
+    with st.expander("🔧 管理者用メニュー"):
+        st.caption("関係者のみ使用可能です。")
+        # ここに入力してエンターを押すと...
+        admin_input = st.text_input("管理者コード", type="password", key="admin_pass")
+        
+        # コードが合っていればボタンが出現
+        if admin_input == ADMIN_CODE:
+            st.success("認証OK")
+            if st.button("🗑️ キャッシュ全削除", type="primary"):
+                st.cache_data.clear()
+                st.success("削除完了！再読み込みします...")
+                time.sleep(1)
+                st.rerun()
 
 # ==========================================
 # ここから下がいつものアプリ本体
@@ -317,10 +318,10 @@ with st.expander("★ 評価基準とアイコンの見方（クリックで詳�
 **過去6ヶ月間で最も取引が活発だった価格帯（しこり玉・岩盤）** です。
 この壁は**「跳ね返される場所（反転）」**であると同時に、**「抜けた後の加速装置（突破）」**でもあります。
 
-- **🚧 上値壁（戻り売り圧力）**
+- **🚧 上壁（戻り売り圧力）**
     - **【基本】** ここまでは上がっても叩き落とされやすい（抵抗線）。
     - **【突破】** しかしここを食い破れば、売り手不在の**「青天井」**モード突入！
-- **🛡️ 下値壁（押し目買い支持）**
+- **🛡️ 下壁（押し目買い支持）**
     - **【基本】** ここで下げ止まって反発しやすい（支持線）。
     - **【割込】** しかしここを割り込むと、ガチホ勢が全員含み損になり**「パニック売り」**が連鎖する恐れあり。
 - **🔥 激戦中（分岐点）**
@@ -349,8 +350,8 @@ if run_btn:
         st.stop()
 
     # 待機時間を考慮したメッセージ
-    eta = len(codes) * 3
-    with st.spinner(f"🚀 爆速で分析中...（Yahoo対策のため1銘柄につき数秒お待ちください。）"):
+    eta = len(codes) * 4 # リトライ分を考慮して少し長めに
+    with st.spinner(f"🚀 爆速で分析中...（1銘柄につき数秒お待ちください。アクセス集中時はリトライします）"):
         try:
             bundle = fv.calc_fuyaseru_bundle(codes)
         except Exception as e:
