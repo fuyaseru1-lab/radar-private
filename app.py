@@ -1,7 +1,7 @@
 import re
 import math
 import unicodedata
-import time  # ★ここ！これを追加し忘れていました！
+import time  # ★エラー修正：ここに追加しました！
 from typing import Any, Dict, List, Optional
 import pandas as pd
 import streamlit as st
@@ -10,8 +10,8 @@ import fair_value_calc_y4 as fv  # 計算エンジン
 # ==========================================
 # 🔑 パスワード設定
 # ==========================================
-USER_PASSWORD = "7777"      # 一般ユーザー
-ADMIN_PASSWORD = "77777"    # 管理者（キャッシュ削除可能）
+LOGIN_PASSWORD = "7777"     # ログイン用
+ADMIN_CODE = "77777"        # キャッシュ削除用コマンド
 # ==========================================
 
 # -----------------------------
@@ -59,15 +59,13 @@ hide_streamlit_style = """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # -----------------------------
-# 🔐 認証ロジック（門番）
+# 🔐 認証ロジック（全員共通 7777）
 # -----------------------------
 def check_password():
     """パスワードが合っているか確認する関数"""
     
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
-    if "is_admin" not in st.session_state:
-        st.session_state["is_admin"] = False
 
     if not st.session_state["logged_in"]:
         st.markdown("## 🔒 ACCESS RESTRICTED")
@@ -77,16 +75,10 @@ def check_password():
         
         if st.button("ログイン"):
             input_norm = unicodedata.normalize('NFKC', password_input).upper().strip()
-            user_norm = unicodedata.normalize('NFKC', USER_PASSWORD).upper().strip()
-            admin_norm = unicodedata.normalize('NFKC', ADMIN_PASSWORD).upper().strip()
+            secret_norm = unicodedata.normalize('NFKC', LOGIN_PASSWORD).upper().strip()
             
-            if input_norm == admin_norm:
+            if input_norm == secret_norm:
                 st.session_state["logged_in"] = True
-                st.session_state["is_admin"] = True
-                st.rerun()
-            elif input_norm == user_norm:
-                st.session_state["logged_in"] = True
-                st.session_state["is_admin"] = False
                 st.rerun()
             else:
                 st.error("パスワードが違います 🙅")
@@ -97,16 +89,21 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 🔧 管理者メニュー（エラー修正済み）
+# 🔧 サイドバー（管理者コマンド入力欄）
 # -----------------------------
-if st.session_state["is_admin"]:
-    with st.sidebar:
-        st.header("🔧 管理者メニュー")
-        st.info("管理者権限(77777)でログイン中")
+with st.sidebar:
+    st.header("🔧 設定・管理")
+    
+    # 常に表示される管理者コード入力欄
+    admin_input = st.text_input("管理者コード", type="password", placeholder="管理者のみ入力")
+    
+    # 入力されたコードが 77777 の場合のみボタンを表示
+    if admin_input == ADMIN_CODE:
+        st.success("管理者権限：認証OK")
         if st.button("🗑️ キャッシュ全削除"):
             st.cache_data.clear()
             st.success("キャッシュを削除しました！")
-            time.sleep(1) # ここでエラーが出ていました（import timeで解決）
+            time.sleep(1)
             st.rerun()
 
 # ==========================================
