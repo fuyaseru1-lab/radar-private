@@ -3,8 +3,8 @@ from typing import Dict, List, Any, Optional
 import math
 import concurrent.futures
 import streamlit as st
-import time   # 休憩用
-import random # ランダム時間用
+import time
+import random
 
 try:
     import yfinance as yf
@@ -41,17 +41,31 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    """1銘柄分の取得ロジック（最強版：Wait入り）"""
+    """1銘柄分の取得ロジック（存在しない銘柄の判定強化版）"""
     
-    # ★安全装置：0.5秒〜1.5秒ほどランダムに休憩してアクセス制限を回避
     time.sleep(random.uniform(0.5, 1.5))
 
     ticker = f"{code4}.T"
     try:
         t = yf.Ticker(ticker)
         hist = t.history(period="5d")
+        
+        # ★ここを修正：データが空＝「存在しない」として処理
         if hist is None or hist.empty:
-            return {"code": code4, "name": "エラー(制限中)", "note": "アクセス集中"}
+            return {
+                "code": code4, 
+                "name": "存在しない銘柄", # ★ここを変更
+                "weather": "—", 
+                "price": None, 
+                "fair_value": None, 
+                "upside_pct": None, 
+                "note": "—",            # ★ここを変更
+                "dividend": None, 
+                "dividend_amount": None, 
+                "growth": None, 
+                "market_cap": None, 
+                "big_prob": None
+            }
         
         info = t.info
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
@@ -135,13 +149,17 @@ def _fetch_single_stock(code4: str) -> dict:
             "growth": rev_growth, "market_cap": market_cap, "big_prob": big_prob
         }
     except Exception as e:
-        return {"code": code4, "name": "エラー", "note": "取得失敗"}
+        # エラー発生時も同様に処理
+        return {
+            "code": code4, "name": "存在しない銘柄", "weather": "—", "price": None,
+            "fair_value": None, "upside_pct": None, "note": "—",
+            "dividend": None, "dividend_amount": None, "growth": None,
+            "market_cap": None, "big_prob": None
+        }
 
-# ★最強設定：12時間の記憶保持 (ttl=43200)
 @st.cache_data(ttl=43200, show_spinner=False)
 def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     out = {}
-    # ★安全装置：同時アクセスは2つまで (max_workers=2)
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         futures = {executor.submit(_fetch_single_stock, code): code for code in codes}
         for f in concurrent.futures.as_completed(futures):
