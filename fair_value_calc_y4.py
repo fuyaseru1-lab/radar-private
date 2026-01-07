@@ -25,7 +25,6 @@ def _get_weather_icon(roe: Optional[float], roa: Optional[float]) -> str:
     return "☁（普通）"
 
 def _calc_rsi(series, period=14):
-    """RSIを計算"""
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
@@ -33,12 +32,37 @@ def _calc_rsi(series, period=14):
     return 100 - (100 / (1 + rs))
 
 def _calc_bollinger_bands(series, window=20, num_std=2):
-    """ボリンジャーバンド（±2σ）を計算"""
     rolling_mean = series.rolling(window=window).mean()
     rolling_std = series.rolling(window=window).std()
     upper_band = rolling_mean + (rolling_std * num_std)
     lower_band = rolling_mean - (rolling_std * num_std)
     return upper_band, lower_band
+
+def _calc_volume_profile_wall(hist, current_price, bins=40):
+    """
+    価格帯別出来高の壁を計算し、
+    「突破で激熱」か「割込で即逃げ」かの判定を行う
+    """
+    try:
+        # ビン（価格帯）を作成して集計
+        hist['price_bin'] = pd.cut(hist['Close'], bins=bins)
+        vol_profile = hist.groupby('price_bin', observed=False)['Volume'].sum()
+        
+        # 最も出来高が多いビン（主戦場）を探す
+        max_vol_bin = vol_profile.idxmax()
+        target_price = max_vol_bin.mid
+        
+        # 現在値との位置関係でメッセージ分岐
+        # 誤差2%程度は「激戦中」とみなす
+        if current_price > target_price * 1.02:
+            return f"🛡️下値壁 ({target_price:,.0f}) 割込で即逃げ"
+        elif current_price < target_price * 0.98:
+            return f"🚧上値壁 ({target_price:,.0f}) 突破で激熱"
+        else:
+            return f"⚔️激戦中 ({target_price:,.0f}) 分岐点"
+            
+    except Exception:
+        return "—"
 
 def _calc_big_player_score(market_cap, pbr, volume_ratio):
     score = 0
@@ -58,14 +82,13 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    """1銘柄分の取得ロジック（テクニカル複合判定版）"""
     
     time.sleep(random.uniform(0.5, 1.5))
 
     ticker = f"{code4}.T"
     try:
         t = yf.Ticker(ticker)
-        # テクニカル計算用に6ヶ月分のデータを取得
+        # 6ヶ月分のデータを取得
         hist = t.history(period="6mo")
         
         if hist is None or hist.empty:
@@ -74,49 +97,45 @@ def _fetch_single_stock(code4: str) -> dict:
                 "fair_value": None, "upside_pct": None, "note": "—", 
                 "dividend": None, "dividend_amount": None, "growth": None, 
                 "market_cap": None, "big_prob": None,
-                "signal_icon": "—"
+                "signal_icon": "—", "volume_wall": "—"
             }
         
         info = t.info
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
         current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
         
-        # ----------------------------------------
-        # ★独自計算ロジック：今買いか？判定
-        # ----------------------------------------
+        # ★新機能：需給の壁（突破力）判定
+        volume_wall = "—"
+        if len(hist) > 30 and price:
+            volume_wall = _calc_volume_profile_wall(hist, price)
+
+        # テクニカル分析
         signal_icon = "—"
-        if len(hist) > 75: # データが十分ある場合のみ計算
+        if len(hist) > 75:
             score = 0
-            
-            # 1. RSI (14)
             rsi_series = _calc_rsi(hist["Close"])
             rsi_val = rsi_series.iloc[-1] if not rsi_series.empty else 50
-            if rsi_val <= 30: score += 2       # 売られすぎ（買い）
+            if rsi_val <= 30: score += 2
             elif rsi_val <= 40: score += 1
-            elif rsi_val >= 70: score -= 2     # 買われすぎ（警戒）
+            elif rsi_val >= 70: score -= 2
             elif rsi_val >= 60: score -= 1
             
-            # 2. 移動平均線 (75日)
             ma75 = hist["Close"].rolling(window=75).mean().iloc[-1]
-            if price > ma75: score += 1        # 上昇トレンド
-            else: score -= 1                   # 下降トレンド
+            if price > ma75: score += 1
+            else: score -= 1
             
-            # 3. ボリンジャーバンド (20日, ±2σ)
             upper, lower = _calc_bollinger_bands(hist["Close"])
             ub_val = upper.iloc[-1]
             lb_val = lower.iloc[-1]
             
-            if price <= lb_val: score += 2     # -2σタッチ（逆張り買い）
-            elif price >= ub_val: score -= 2   # +2σタッチ（売りサイン）
+            if price <= lb_val: score += 2
+            elif price >= ub_val: score -= 2
             
-            # 判定結果をシンボル化
-            if score >= 3: signal_icon = "↑◎"     # 激熱
-            elif score >= 1: signal_icon = "↗〇"    # 買い
-            elif score == 0: signal_icon = "→△"    # 普通
-            elif score >= -2: signal_icon = "↘▲"   # 売り気配
-            else: signal_icon = "↓✖"               # 危険
-        
-        # ----------------------------------------
+            if score >= 3: signal_icon = "↑◎"
+            elif score >= 1: signal_icon = "↗〇"
+            elif score == 0: signal_icon = "→△"
+            elif score >= -2: signal_icon = "↘▲"
+            else: signal_icon = "↓✖"
         
         eps_trail = _safe_float(info.get("trailingEps"), None) 
         eps_fwd   = _safe_float(info.get("forwardEps"), None)
@@ -194,14 +213,15 @@ def _fetch_single_stock(code4: str) -> dict:
             "fair_value": fair_value, "upside_pct": upside_pct, "note": note, 
             "dividend": div_rate, "dividend_amount": raw_div,
             "growth": rev_growth, "market_cap": market_cap, "big_prob": big_prob,
-            "signal_icon": signal_icon
+            "signal_icon": signal_icon,
+            "volume_wall": volume_wall # 返却
         }
     except Exception as e:
         return {
             "code": code4, "name": "存在しない銘柄", "weather": "—", "price": None,
             "fair_value": None, "upside_pct": None, "note": "—",
             "dividend": None, "dividend_amount": None, "growth": None,
-            "market_cap": None, "big_prob": None, "signal_icon": "—"
+            "market_cap": None, "big_prob": None, "signal_icon": "—", "volume_wall": "—"
         }
 
 @st.cache_data(ttl=43200, show_spinner=False)
