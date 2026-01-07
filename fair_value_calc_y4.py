@@ -160,14 +160,15 @@ def _fetch_single_stock(code4: str) -> dict:
     
     t, hist = _fetch_with_retry(ticker)
     
+    # ★ここを修正：データが取れない＝「存在しない銘柄」として統一
     if t is None or hist is None:
          return {
-            "code": code4, "name": "エラー", "weather": "—", "price": None, 
-            "fair_value": None, "upside_pct": None, "note": "データ取得不可(Yahoo拒否)", 
+            "code": code4, "name": "存在しない銘柄", "weather": "—", "price": None, 
+            "fair_value": None, "upside_pct": None, "note": "—", 
             "dividend": None, "dividend_amount": None, "growth": None, 
             "market_cap": None, "big_prob": None,
             "signal_icon": "—", "volume_wall": "—",
-            "hist_data": None # データなし
+            "hist_data": None
         }
 
     try:
@@ -206,9 +207,11 @@ def _fetch_single_stock(code4: str) -> dict:
             else: signal_icon = "↓✖"
             
     except Exception:
+        # 計算中のエラーも「存在しない」扱いに倒すか、計算エラーとする
+        # ここでは安全のため「存在しない」扱いにします
         return {
-            "code": code4, "name": "計算エラー", "weather": "—", "price": None, 
-            "fair_value": None, "upside_pct": None, "note": "計算失敗", 
+            "code": code4, "name": "存在しない銘柄", "weather": "—", "price": None, 
+            "fair_value": None, "upside_pct": None, "note": "—", 
             "dividend": None, "dividend_amount": None, "growth": None, 
             "market_cap": None, "big_prob": None,
             "signal_icon": "—", "volume_wall": "—",
@@ -272,16 +275,19 @@ def _fetch_single_stock(code4: str) -> dict:
     if q_type in ["ETF", "MUTUALFUND"]: is_fund = True
     elif "ETF" in short_name or "REIT" in short_name or "リート" in str(long_name): is_fund = True
 
-    if is_fund: note = "ETF/REIT対象外"
+    if is_fund: note = "ETF/REITのため対象外"
     elif not price: note = "現在値不明"
     elif bps is None: note = "財務データ取得失敗"
     else:
-        if eps_trail is not None and eps_trail > 0: calc_eps = eps_trail
+        # ★ここが予想EPSロジック：実績がプラスなら実績、実績ダメなら予想を見る
+        if eps_trail is not None and eps_trail > 0: 
+            calc_eps = eps_trail
         elif eps_fwd is not None and eps_fwd > 0:
             calc_eps = eps_fwd
             is_forecast = True
         
         if calc_eps is None: 
+            # 実績も予想もダメ（両方赤字かデータなし）
             if eps_trail is not None and eps_trail < 0: note = "赤字のため算出不可"
             else: note = "算出不能"
         else:
@@ -302,7 +308,7 @@ def _fetch_single_stock(code4: str) -> dict:
         "growth": rev_growth, "market_cap": market_cap, "big_prob": big_prob,
         "signal_icon": signal_icon,
         "volume_wall": volume_wall,
-        "hist_data": hist # ★チャート描画用に生データを渡す
+        "hist_data": hist
     }
 
 @st.cache_data(ttl=43200, show_spinner=False)
@@ -320,8 +326,8 @@ def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
             out[code] = res
         except Exception:
             out[code] = {
-                "code": code, "name": "エラー", "weather": "—", "price": None,
-                "fair_value": None, "upside_pct": None, "note": "処理失敗",
+                "code": code, "name": "存在しない銘柄", "weather": "—", "price": None,
+                "fair_value": None, "upside_pct": None, "note": "—",
                 "dividend": None, "dividend_amount": None, "growth": None,
                 "market_cap": None, "big_prob": None, "signal_icon": "—", "volume_wall": "—",
                 "hist_data": None
