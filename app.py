@@ -27,7 +27,7 @@ except Exception:
 # -----------------------------
 st.set_page_config(page_title="フヤセルブレイン - AI理論株価分析ツール", page_icon="📈", layout="wide")
 
-# ★スマホ対応：文字色強制ブラック＆チャート調整CSS
+# ★スマホ対応：文字色強制ブラック（最強版）＆チャート調整
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -63,17 +63,26 @@ hide_streamlit_style = """
                 color: #31333F;
             }
             
-            /* ★スマホのダークモード対策：強制的に文字を濃い色にする */
-            html, body, p, h1, h2, h3, h4, h5, h6, li, span, div {
+            /* ★スマホ対策：あらゆる要素の文字色を強制的に濃い色（#31333F）にする */
+            .stApp, .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown span, .stMarkdown div {
+                color: #31333F !important;
+                background-color: #ffffff !important;
+            }
+            
+            /* 箇条書きの点（・）の色も強制変更 */
+            ul {
                 color: #31333F !important;
             }
+            
             /* 背景も白系に固定 */
-            .stApp {
-                background-color: #ffffff;
+            div[data-testid="stAppViewContainer"] {
+                background-color: #ffffff !important;
             }
+            
             /* 入力ボックス内の文字色も見やすく */
             .stTextInput input, .stTextArea textarea {
                 color: #31333F !important;
+                background-color: #f0f2f6 !important;
             }
             </style>
             """
@@ -163,7 +172,7 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     if fair_value:
         fig.add_hline(y=fair_value, line_dash="dash", line_color="white", annotation_text="理論株価", annotation_position="top left")
 
-    # レイアウト調整（★ここ重要：ドラッグ禁止設定）
+    # レイアウト調整（★ドラッグ禁止設定済み）
     fig.update_layout(
         title=f"📊 {name} ({code})",
         height=450,
@@ -174,17 +183,17 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     )
     
     # x軸・y軸の固定設定
-    fig.update_xaxes(fixedrange=True) # ★X軸ズーム禁止
-    fig.update_yaxes(fixedrange=True) # ★Y軸ズーム禁止
+    fig.update_xaxes(fixedrange=True) 
+    fig.update_yaxes(fixedrange=True)
 
-    # ★configでツールバーも非表示にして完全固定
+    # ★ツールバー非表示・スクロールズーム禁止
     st.plotly_chart(
         fig, 
         use_container_width=True,
         config={
-            'displayModeBar': False, # ツールバー消す
-            'staticPlot': False,      # 静止画にはしない（ツールチップは見れるように）
-            'scrollZoom': False       # スクロールズーム禁止
+            'displayModeBar': False, 
+            'staticPlot': False,      
+            'scrollZoom': False       
         }
     )
 
@@ -346,9 +355,16 @@ with st.expander("★ 評価基準とアイコンの見方（クリックで詳�
 
 ### 3. 需給の壁（突破力）
 **過去6ヶ月間で最も取引が活発だった価格帯（しこり玉・岩盤）** です。
-- **🚧 上壁（戻り売り圧力）**：ここまでは上がっても叩き落とされやすい（抵抗線）。突破すれば青天井！
-- **🛡️ 下壁（押し目買い支持）**：ここで下げ止まって反発しやすい（支持線）。割るとパニック売り注意。
-- **🔥 激戦中（分岐点）**：まさに今、その壁の中で戦っている。
+この壁は**「跳ね返される場所（反転）」**であると同時に、**「抜けた後の加速装置（突破）」**でもあります。
+
+- **🚧 上壁（戻り売り圧力）**
+    - **【基本】** ここまでは上がっても叩き落とされやすい（抵抗線）。
+    - **【突破】** しかしここを食い破れば、売り手不在の**「青天井」**モード突入！
+- **🛡️ 下壁（押し目買い支持）**
+    - **【基本】** ここで下げ止まって反発しやすい（支持線）。
+    - **【割込】** しかしここを割り込むと、ガチホ勢が全員含み損になり**「パニック売り」**が連鎖する恐れあり。
+- **🔥 激戦中（分岐点）**
+    - まさに今、その壁の中で戦っている。突破するか、跳ね返されるか、要注目！
 """, unsafe_allow_html=True) 
 
 st.subheader("🔢 銘柄入力")
