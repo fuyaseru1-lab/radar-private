@@ -97,7 +97,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 📈 チャート描画関数
+# 📈 チャート描画関数（タイトル付き）
 # -----------------------------
 def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist = ticker_data.get("hist_data")
@@ -127,14 +127,22 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         else:
             bar_colors.append('rgba(33, 150, 243, 0.6)')
 
-    fig = make_subplots(rows=1, cols=2, shared_yaxes=True, column_widths=[0.75, 0.25], horizontal_spacing=0.02)
+    # ★ここに「需給の壁」というタイトルを追加！
+    fig = make_subplots(
+        rows=1, cols=2, 
+        shared_yaxes=True, 
+        column_widths=[0.75, 0.25], 
+        horizontal_spacing=0.02,
+        subplot_titles=("📉 株価トレンド", "🧱 需給の壁") # ★キャッチーなタイトル設定
+    )
+
     fig.add_trace(go.Candlestick(x=hist['Date'], open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'], name='株価'), row=1, col=1)
     fig.add_trace(go.Bar(x=vol_profile.values, y=[i.mid for i in vol_profile.index], orientation='h', marker_color=bar_colors, name='出来高'), row=1, col=2)
 
     if fair_value:
         fig.add_hline(y=fair_value, line_dash="dash", line_color="white", annotation_text="理論株価", annotation_position="top left")
 
-    fig.update_layout(title=f"📊 {name} ({code})", height=450, showlegend=False, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=40, b=10), dragmode=False)
+    fig.update_layout(title=f"📊 {name} ({code})", height=450, showlegend=False, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=60, b=10), dragmode=False)
     fig.update_xaxes(fixedrange=True) 
     fig.update_yaxes(fixedrange=True)
 
@@ -158,7 +166,7 @@ def sanitize_codes(raw_codes: List[str]) -> List[str]:
         if c not in uniq: uniq.append(c)
     return uniq
 
-# ★フォーマット関数（nan撲滅強化版）
+# ★フォーマット関数（nan撲滅・完全版）
 def fmt_yen(x):
     if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
     try: return f"{float(x):,.0f} 円"
@@ -212,7 +220,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
         for code in codes:
             v = bundle.get(code)
             if isinstance(v, dict):
-                # エラー系の統一処理
                 if v.get("note") == "データ取得不可(Yahoo拒否)" or v.get("name") == "エラー" or v.get("name") == "計算エラー":
                      v["name"] = "存在しない銘柄"
                      v["note"] = "—"
@@ -220,7 +227,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
                      v["signal_icon"] = "—"
                      v["weather"] = "—"
                 
-                # 文言修正
                 if v.get("note") == "ETF/REIT対象外":
                      v["note"] = "ETF/REITのため対象外"
                 
@@ -253,11 +259,10 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["rating"] = df["upside_pct_num"].apply(calc_rating_from_upside)
     df["stars"] = df["rating"].apply(to_stars)
     
-    # エラー行のクレンジング
     error_mask = df["name"] == "存在しない銘柄"
     df.loc[error_mask, "stars"] = "—"
     df.loc[error_mask, "price"] = None
-    df.loc[error_mask, "fair_value"] = None # nan対策
+    df.loc[error_mask, "fair_value"] = None 
     df.loc[error_mask, "note"] = "—"
 
     df["証券コード"] = df["ticker"]
@@ -288,9 +293,9 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     
     return df[show_cols]
 
-# -----------------------------
+# ==========================================
 # メイン画面構築
-# -----------------------------
+# ==========================================
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 
 with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
@@ -363,11 +368,10 @@ if st.session_state["analysis_bundle"]:
     df = bundle_to_df(bundle, codes)
     
     st.subheader("📊 分析結果")
-    st.info("💡 **「詳細」** 列のチェックボックスをONにすると、下に詳細チャートが表示されます！")
+    st.info("💡 **「詳細」** 列のチェックボックスをONにすると、下に詳細チャートが表示されます！（複数選択OK）")
     
     styled_df = df.style.map(highlight_errors, subset=["銘柄名"])
     
-    # ★複数選択対応
     edited_df = st.data_editor(
         styled_df,
         use_container_width=True,
@@ -386,13 +390,12 @@ if st.session_state["analysis_bundle"]:
     
     selected_rows = edited_df[edited_df["詳細"] == True]
     
-    # ★ここが重要：選択された行すべてをループしてチャートを表示（同時表示）
+    # ★複数選択ループ表示
     if not selected_rows.empty:
         for _, row in selected_rows.iterrows():
             selected_code = row["証券コード"]
             ticker_data = bundle.get(selected_code)
             
-            # エラー以外の銘柄のみ表示
             if ticker_data and ticker_data.get("name") != "存在しない銘柄" and ticker_data.get("hist_data") is not None:
                 st.divider()
                 st.markdown(f"### 📉 詳細分析チャート：{ticker_data.get('name')}")
