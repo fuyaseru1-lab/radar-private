@@ -125,7 +125,6 @@ def _as_float(x: Any) -> Optional[float]:
         return v
     except: return None
 
-# ★ここで赤字にする条件を指定
 def highlight_errors(val):
     if val == "存在しない銘柄" or val == "エラー":
         return 'color: #ff4b4b; font-weight: bold;'
@@ -148,7 +147,7 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
         rows.append({"ticker": ",".join(codes), "note": "エラー", "value": bundle})
 
     df = pd.DataFrame(rows)
-    cols = ["name", "weather", "price", "fair_value", "upside_pct", "dividend", "dividend_amount", "growth", "market_cap", "big_prob", "note"]
+    cols = ["name", "weather", "price", "fair_value", "upside_pct", "dividend", "dividend_amount", "growth", "market_cap", "big_prob", "note", "signal_icon"]
     for col in cols:
         if col not in df.columns: df[col] = None
 
@@ -163,11 +162,10 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["growth_num"] = df["growth"].apply(_as_float)
     df["mc_num"] = df["market_cap"].apply(_as_float)
     df["prob_num"] = df["big_prob"].apply(_as_float)
-
+    
     df["rating"] = df["upside_pct_num"].apply(calc_rating_from_upside)
     df["stars"] = df["rating"].apply(to_stars)
     
-    # ★追加修正：もし名前が「存在しない銘柄」なら、評価の星を強制的に「—」にする
     df.loc[df["name"] == "存在しない銘柄", "stars"] = "—"
 
     df["証券コード"] = df["ticker"]
@@ -180,6 +178,9 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["上昇余地（％）"] = df["upside_pct_num"].apply(fmt_pct)
     df["評価"] = df["stars"]
     
+    # ★テクニカル判定カラム
+    df["今買いか？"] = df["signal_icon"].fillna("—")
+
     df["配当利回り"] = df["div_num"].apply(fmt_pct)
     df["年間配当"] = df["div_amount_num"].apply(fmt_yen)
     
@@ -190,8 +191,9 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df.index = df.index + 1
     
+    # ★表示順を変更：「評価」のすぐ隣に「今買いか？」
     show_cols = [
-        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", 
+        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？",
         "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
     ]
     return df[show_cols]
@@ -204,14 +206,16 @@ st.caption("証券コードを入力すると、理論株価・配当・成長�
 
 with st.expander("★ 評価基準（AI自動判定）", expanded=True):
     st.markdown("""
-評価（★）は **上昇余地%** を基準にしています。
+- **評価（★）**：理論株価と現在値を比較した **「お得度（割安度）」** です。
+- **今買いか？**：テクニカル指標（RSI・移動平均線・ボリンジャーバンド）を複合分析した **「売買タイミング」** です。
 
-- :red[★★★★★：**お宝**（上昇余地 **+50%** 以上）]
-- ★★★★☆：**激アツ**（上昇余地 **+30%** 〜 +50%）
-- ★★★☆☆：**有望**（上昇余地 **+15%** 〜 +30%）
-- ★★☆☆☆：**普通**（上昇余地 **+5%** 〜 +15%）
-- ★☆☆☆☆：**トントン**（上昇余地 **0%** 〜 +5%）
-- ☆☆☆☆☆：**割高**（上昇余地 **0% 未満**）
+| 表示 | 意味 | 判定ロジック |
+| :--- | :--- | :--- |
+| **↑◎** | **激熱** | **「底値圏」＋「売られすぎ」＋「上昇トレンド」** 等の好条件が3つ以上重なった最強の買い場！ |
+| **↗〇** | **買い** | 複数のプラス要素あり。打診買いのチャンス。 |
+| **→△** | **様子見** | 可もなく不可もなく。方向感が出るまで待つのが無難。 |
+| **↘▲** | **売り** | 天井圏や下落トレンド入り。利益確定や損切りの検討を。 |
+| **↓✖** | **危険** | **「買われすぎ」＋「暴落シグナル」** 等が点灯。手を出してはいけない。 |
 
 ※ 理論株価がマイナスの場合や取得できない場合は **評価不能（—）** になります。
 """)
