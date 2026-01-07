@@ -125,6 +125,7 @@ def _as_float(x: Any) -> Optional[float]:
         return v
     except: return None
 
+# ★ここで赤字にする条件を指定
 def highlight_errors(val):
     if val == "存在しない銘柄" or val == "エラー":
         return 'color: #ff4b4b; font-weight: bold;'
@@ -165,6 +166,9 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df["rating"] = df["upside_pct_num"].apply(calc_rating_from_upside)
     df["stars"] = df["rating"].apply(to_stars)
+    
+    # ★追加修正：もし名前が「存在しない銘柄」なら、評価の星を強制的に「—」にする
+    df.loc[df["name"] == "存在しない銘柄", "stars"] = "—"
 
     df["証券コード"] = df["ticker"]
     df["銘柄名"] = df["name"].fillna("—")
@@ -217,8 +221,6 @@ with st.expander("★ 評価基準（AI自動判定）", expanded=True):
         """)
 
 st.subheader("🔢 銘柄入力")
-
-# ★注意書きは削除済みです
 
 raw_text = st.text_area(
     "分析したい証券コードを入力してください（複数可・改行区切り推奨）",
