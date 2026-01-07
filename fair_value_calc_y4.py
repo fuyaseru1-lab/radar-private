@@ -19,6 +19,28 @@ def _safe_float(x, default=None):
         return v
     except Exception: return default
 
+def _get_weather_icon(roe: Optional[float], roa: Optional[float]) -> str:
+    if roe is None: return "—"
+    if roe < 0: return "☔（赤字）"
+    if roa is not None and roe >= 0.08 and roa >= 0.05: return "☀（優良）"
+    return "☁（普通）"
+
+def _calc_rsi(series, period=14):
+    if len(series) < period + 1: return pd.Series([50]*len(series))
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def _calc_bollinger_bands(series, window=20, num_std=2):
+    if len(series) < window: return series, series
+    rolling_mean = series.rolling(window=window).mean()
+    rolling_std = series.rolling(window=window).std()
+    upper_band = rolling_mean + (rolling_std * num_std)
+    lower_band = rolling_mean - (rolling_std * num_std)
+    return upper_band, lower_band
+
 def _calc_volume_profile_wall(hist, current_price, bins=50):
     """
     需給の壁（価格帯別出来高）を計算
@@ -30,11 +52,12 @@ def _calc_volume_profile_wall(hist, current_price, bins=50):
         df = hist.copy()
         
         # 最低限のデータチェック
-        if len(df) < 3: return "データ不足"
+        if len(df) < 3: return "—"
+        if 'Close' not in df.columns or 'Volume' not in df.columns: return "—"
 
         # 価格帯ビンの作成
         if df['Close'].max() == df['Close'].min():
-             return "値動きなし"
+             return "🧱値動きなし"
 
         df['price_bin'] = pd.cut(df['Close'], bins=bins)
         
@@ -53,7 +76,7 @@ def _calc_volume_profile_wall(hist, current_price, bins=50):
         if not lower_candidates.empty and lower_candidates.sum() > 0:
             lower_wall = lower_candidates.idxmax().mid
             
-        # 3%ルール判定
+        # --- 3%ルール判定 ---
         if upper_wall and (upper_wall - current_price) / current_price <= 0.03:
              return f"🔥上壁激戦中 ({upper_wall:,.0f}円)"
              
@@ -66,20 +89,40 @@ def _calc_volume_profile_wall(hist, current_price, bins=50):
         return f"{u_text} / {l_text}"
 
     except Exception:
-        return "計算エラー"
+        return "—"
+
+def _calc_big_player_score(market_cap, pbr, volume_ratio):
+    score = 0
+    if market_cap is not None:
+        mc_oku = market_cap / 100000000 
+        if 1000 <= mc_oku <= 2000: score += 50
+        elif 500 <= mc_oku < 1000: score += 40
+        elif 2000 < mc_oku <= 3000: score += 35
+        elif 300 <= mc_oku < 500: score += 20
+        elif 3000 < mc_oku <= 10000: score += 10
+    
+    if pbr is not None and 0 < pbr < 1.0: score += 20
+    if volume_ratio is not None:
+        if volume_ratio >= 3.0: score += 30
+        elif volume_ratio >= 2.0: score += 20
+        elif volume_ratio >= 1.5: score += 10
+    return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    # ★固定で3秒待つ（安定重視）
+    # 安定のために3秒待機（これは必須）
     time.sleep(3.0)
 
     ticker = f"{code4}.T"
     
-    # === STEP 1: 株価データ取得 ===
+    # ---------------------------------------------------------
+    # 1. 株価データ (History) の取得 【最優先】
+    # ---------------------------------------------------------
+    hist = None
     try:
         t = yf.Ticker(ticker)
+        # まず6ヶ月
         hist = t.history(period="6mo")
-        
-        # 6ヶ月がダメなら1ヶ月で再トライ
+        # ダメなら1ヶ月
         if hist.empty:
             time.sleep(1)
             hist = t.history(period="1mo")
@@ -87,7 +130,7 @@ def _fetch_single_stock(code4: str) -> dict:
     except Exception:
         hist = None
 
-    # 株価が取れなかったら即終了（これは本当に存在しないか通信エラー）
+    # 株価すら取れない＝本当に存在しないか通信遮断
     if hist is None or hist.empty:
         return {
             "code": code4, "name": "取得失敗", "weather": "—", "price": None, 
@@ -97,27 +140,23 @@ def _fetch_single_stock(code4: str) -> dict:
             "signal_icon": "—", "volume_wall": "—"
         }
 
-    # === STEP 2: テクニカル指標の計算 ===
-    # ここはデータがある限り計算する
+    # ---------------------------------------------------------
+    # 2. テクニカル & 壁 計算 (財務データがなくても計算する)
+    # ---------------------------------------------------------
     price = _safe_float(hist["Close"].iloc[-1], 0)
     current_volume = _safe_float(hist["Volume"].iloc[-1], 0)
     
-    # 需給の壁
+    # ★需給の壁 (ここで計算！)
     volume_wall = _calc_volume_profile_wall(hist, price)
 
-    # シグナル（簡易版）
+    # シグナル
     signal_icon = "—"
     try:
-        if len(hist) > 25:
-            # RSI計算
-            delta = hist["Close"].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-            rs = gain / loss
-            rsi = 100 - (100 / (1 + rs))
-            rsi_val = rsi.iloc[-1]
+        if len(hist) > 0:
+            rsi_series = _calc_rsi(hist["Close"])
+            rsi_val = rsi_series.iloc[-1]
             
-            # ボリンジャーバンド
+            # ボリンジャー
             ma = hist["Close"].rolling(20).mean()
             std = hist["Close"].rolling(20).std()
             ub = ma + 2 * std
@@ -138,32 +177,38 @@ def _fetch_single_stock(code4: str) -> dict:
     except:
         pass
 
-    # === STEP 3: 財務データ取得（失敗してもOK） ===
+    # ---------------------------------------------------------
+    # 3. 財務データ (Info) の取得 【失敗してもOKにする】
+    # ---------------------------------------------------------
     info = {}
     try:
         info = t.info
     except:
-        pass # 取れなくてもエラーにしない
+        pass # 財務が取れなくてもエラーにしない
 
-    # 各種データの取り出し（なければNone）
-    name = info.get("longName", info.get("shortName", f"({code4})"))
-    
-    # 業績
-    roe = _safe_float(info.get("returnOnEquity"), None)
-    roa = _safe_float(info.get("returnOnAssets"), None)
-    weather = "☁（普通）"
-    if roe is not None and roe < 0: weather = "☔（赤字）"
-    if roe is not None and roe >= 0.08 and roa is not None and roa >= 0.05: weather = "☀（優良）"
+    # 名前 (Infoがダメならコードを入れる)
+    long_name = info.get("longName", "")
+    short_name = info.get("shortName", "")
+    if long_name: name = long_name
+    elif short_name: name = short_name
+    else: name = f"({code4})"
 
-    # グレアム数計算
+    # 各種指標
     eps = _safe_float(info.get("trailingEps"), info.get("forwardEps", None))
     bps = _safe_float(info.get("bookValue"), None)
+    roe = _safe_float(info.get("returnOnEquity"), None)
+    roa = _safe_float(info.get("returnOnAssets"), None)
+    mcap = _safe_float(info.get("marketCap"), None)
+    avg_vol = _safe_float(info.get("averageVolume"), None)
     
+    # 天気
+    weather = _get_weather_icon(roe, roa)
+
+    # 理論株価
     fair_value = None
     note = "OK"
-    
     if bps is None:
-        note = "財務データなし"
+        note = "財務データ不足"
     elif eps is None or eps < 0:
         note = "赤字/算出不可"
     else:
@@ -172,14 +217,13 @@ def _fetch_single_stock(code4: str) -> dict:
             if val > 0:
                 fair_value = round(math.sqrt(val), 0)
                 note = f"EPS{eps:.1f}×BPS{bps:.0f}"
-        except:
-            note = "計算エラー"
+        except: pass
 
     upside_pct = None
     if fair_value and price:
         upside_pct = round((fair_value / price - 1) * 100, 2)
 
-    # 配当など
+    # 配当・成長性
     div_rate = None
     raw_div = info.get("dividendRate")
     if raw_div and price: div_rate = (raw_div / price) * 100
@@ -187,21 +231,18 @@ def _fetch_single_stock(code4: str) -> dict:
     growth = _safe_float(info.get("revenueGrowth"), None)
     if growth: growth *= 100
     
-    mcap = _safe_float(info.get("marketCap"), None)
-    
-    # 大口期待度（簡易）
-    big_prob = 0
-    if mcap:
-        oku = mcap / 100000000
-        if 500 <= oku <= 3000: big_prob = 60
-    
+    # 大口期待度
+    pbr = (price / bps) if (price and bps and bps > 0) else None
+    vol_ratio = (current_volume / avg_vol) if (avg_vol and avg_vol > 0) else 0
+    big_prob = _calc_big_player_score(mcap, pbr, vol_ratio)
+
     return {
         "code": code4, "name": name, "weather": weather, "price": price,
         "fair_value": fair_value, "upside_pct": upside_pct, "note": note, 
         "dividend": div_rate, "dividend_amount": raw_div,
         "growth": growth, "market_cap": mcap, "big_prob": big_prob,
         "signal_icon": signal_icon,
-        "volume_wall": volume_wall
+        "volume_wall": volume_wall # ここ重要
     }
 
 @st.cache_data(ttl=3600, show_spinner=False)
