@@ -5,6 +5,7 @@ import concurrent.futures
 import streamlit as st
 import time
 import random
+import pandas as pd
 
 try:
     import yfinance as yf
@@ -22,6 +23,22 @@ def _get_weather_icon(roe: Optional[float], roa: Optional[float]) -> str:
     if roe < 0: return "☔（赤字）"
     if roa is not None and roe >= 0.08 and roa >= 0.05: return "☀（優良）"
     return "☁（普通）"
+
+def _calc_rsi(series, period=14):
+    """RSIを計算"""
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def _calc_bollinger_bands(series, window=20, num_std=2):
+    """ボリンジャーバンド（±2σ）を計算"""
+    rolling_mean = series.rolling(window=window).mean()
+    rolling_std = series.rolling(window=window).std()
+    upper_band = rolling_mean + (rolling_std * num_std)
+    lower_band = rolling_mean - (rolling_std * num_std)
+    return upper_band, lower_band
 
 def _calc_big_player_score(market_cap, pbr, volume_ratio):
     score = 0
@@ -41,35 +58,65 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    """1銘柄分の取得ロジック（存在しない銘柄の判定強化版）"""
+    """1銘柄分の取得ロジック（テクニカル複合判定版）"""
     
     time.sleep(random.uniform(0.5, 1.5))
 
     ticker = f"{code4}.T"
     try:
         t = yf.Ticker(ticker)
-        hist = t.history(period="5d")
+        # テクニカル計算用に6ヶ月分のデータを取得
+        hist = t.history(period="6mo")
         
-        # ★ここを修正：データが空＝「存在しない」として処理
         if hist is None or hist.empty:
             return {
-                "code": code4, 
-                "name": "存在しない銘柄", # ★ここを変更
-                "weather": "—", 
-                "price": None, 
-                "fair_value": None, 
-                "upside_pct": None, 
-                "note": "—",            # ★ここを変更
-                "dividend": None, 
-                "dividend_amount": None, 
-                "growth": None, 
-                "market_cap": None, 
-                "big_prob": None
+                "code": code4, "name": "存在しない銘柄", "weather": "—", "price": None, 
+                "fair_value": None, "upside_pct": None, "note": "—", 
+                "dividend": None, "dividend_amount": None, "growth": None, 
+                "market_cap": None, "big_prob": None,
+                "signal_icon": "—"
             }
         
         info = t.info
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
         current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
+        
+        # ----------------------------------------
+        # ★独自計算ロジック：今買いか？判定
+        # ----------------------------------------
+        signal_icon = "—"
+        if len(hist) > 75: # データが十分ある場合のみ計算
+            score = 0
+            
+            # 1. RSI (14)
+            rsi_series = _calc_rsi(hist["Close"])
+            rsi_val = rsi_series.iloc[-1] if not rsi_series.empty else 50
+            if rsi_val <= 30: score += 2       # 売られすぎ（買い）
+            elif rsi_val <= 40: score += 1
+            elif rsi_val >= 70: score -= 2     # 買われすぎ（警戒）
+            elif rsi_val >= 60: score -= 1
+            
+            # 2. 移動平均線 (75日)
+            ma75 = hist["Close"].rolling(window=75).mean().iloc[-1]
+            if price > ma75: score += 1        # 上昇トレンド
+            else: score -= 1                   # 下降トレンド
+            
+            # 3. ボリンジャーバンド (20日, ±2σ)
+            upper, lower = _calc_bollinger_bands(hist["Close"])
+            ub_val = upper.iloc[-1]
+            lb_val = lower.iloc[-1]
+            
+            if price <= lb_val: score += 2     # -2σタッチ（逆張り買い）
+            elif price >= ub_val: score -= 2   # +2σタッチ（売りサイン）
+            
+            # 判定結果をシンボル化
+            if score >= 3: signal_icon = "↑◎"     # 激熱
+            elif score >= 1: signal_icon = "↗〇"    # 買い
+            elif score == 0: signal_icon = "→△"    # 普通
+            elif score >= -2: signal_icon = "↘▲"   # 売り気配
+            else: signal_icon = "↓✖"               # 危険
+        
+        # ----------------------------------------
         
         eps_trail = _safe_float(info.get("trailingEps"), None) 
         eps_fwd   = _safe_float(info.get("forwardEps"), None)
@@ -146,15 +193,15 @@ def _fetch_single_stock(code4: str) -> dict:
             "code": code4, "name": name, "weather": weather, "price": price,
             "fair_value": fair_value, "upside_pct": upside_pct, "note": note, 
             "dividend": div_rate, "dividend_amount": raw_div,
-            "growth": rev_growth, "market_cap": market_cap, "big_prob": big_prob
+            "growth": rev_growth, "market_cap": market_cap, "big_prob": big_prob,
+            "signal_icon": signal_icon
         }
     except Exception as e:
-        # エラー発生時も同様に処理
         return {
             "code": code4, "name": "存在しない銘柄", "weather": "—", "price": None,
             "fair_value": None, "upside_pct": None, "note": "—",
             "dividend": None, "dividend_amount": None, "growth": None,
-            "market_cap": None, "big_prob": None
+            "market_cap": None, "big_prob": None, "signal_icon": "—"
         }
 
 @st.cache_data(ttl=43200, show_spinner=False)
