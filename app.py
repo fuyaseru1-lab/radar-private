@@ -11,20 +11,18 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 🔑 パスワード設定（Secretsから読み込む安全仕様）
+# 🔑 パスワード設定
 # ==========================================
 try:
     LOGIN_PASSWORD = st.secrets["LOGIN_PASSWORD"]
     ADMIN_CODE = st.secrets["ADMIN_CODE"]
 except Exception:
     st.error("❌ システムエラー：パスワード設定（Secrets）が見つかりません。")
-    st.info("Streamlit Cloudの [Settings] > [Secrets] にパスワードを設定してください。")
     st.stop()
-# ==========================================
 
-# -----------------------------
+# ==========================================
 # UI設定
-# -----------------------------
+# ==========================================
 st.set_page_config(page_title="フヤセルブレイン - AI理論株価分析ツール", page_icon="📈", layout="wide")
 
 # ★スマホ対応CSS：文字サイズ調整＆ダークモード対策
@@ -76,13 +74,11 @@ hide_streamlit_style = """
                 background-color: #f0f2f6 !important;
             }
             
-            /* ★スマホ（幅640px以下）の時だけの特別ルール */
+            /* スマホ用調整 */
             @media (max-width: 640px) {
-                /* 文字を少し大きくして読みやすく */
                 .stMarkdown p, .stDataFrame div {
                     font-size: 16px !important; 
                 }
-                /* 余白を調整 */
                 .block-container {
                     padding-top: 2rem !important;
                     padding-left: 1rem !important;
@@ -115,7 +111,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 📈 チャート描画関数（Plotly）
+# 📈 チャート描画関数
 # -----------------------------
 def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist = ticker_data.get("hist_data")
@@ -145,36 +141,18 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         else:
             bar_colors.append('rgba(33, 150, 243, 0.6)')
 
-    fig = make_subplots(
-        rows=1, cols=2, 
-        shared_yaxes=True, 
-        column_widths=[0.75, 0.25],
-        horizontal_spacing=0.02
-    )
-
-    fig.add_trace(go.Candlestick(
-        x=hist['Date'], open=hist['Open'], high=hist['High'],
-        low=hist['Low'], close=hist['Close'], name='株価'
-    ), row=1, col=1)
-
-    fig.add_trace(go.Bar(
-        x=vol_profile.values, y=[i.mid for i in vol_profile.index],
-        orientation='h', marker_color=bar_colors, name='出来高'
-    ), row=1, col=2)
+    fig = make_subplots(rows=1, cols=2, shared_yaxes=True, column_widths=[0.75, 0.25], horizontal_spacing=0.02)
+    fig.add_trace(go.Candlestick(x=hist['Date'], open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'], name='株価'), row=1, col=1)
+    fig.add_trace(go.Bar(x=vol_profile.values, y=[i.mid for i in vol_profile.index], orientation='h', marker_color=bar_colors, name='出来高'), row=1, col=2)
 
     if fair_value:
         fig.add_hline(y=fair_value, line_dash="dash", line_color="white", annotation_text="理論株価", annotation_position="top left")
 
-    fig.update_layout(
-        title=f"📊 {name} ({code})", height=450, showlegend=False,
-        xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=40, b=10),
-        dragmode=False,
-    )
+    fig.update_layout(title=f"📊 {name} ({code})", height=450, showlegend=False, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=40, b=10), dragmode=False)
     fig.update_xaxes(fixedrange=True) 
     fig.update_yaxes(fixedrange=True)
 
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False})
-
 
 # ==========================================
 # メイン処理
@@ -291,29 +269,20 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df.index = df.index + 1
     
-    # 選択用に列を整理（全列バージョン）
-    full_cols = [
-        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁",
-        "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
-    ]
-    
-    # スマホ用シンプル列（横スクロールを減らす）
-    mobile_cols = [
-        "証券コード", "銘柄名", "現在値", "需給の壁", "今買いか？", "評価"
-    ]
+    full_cols = ["証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"]
+    mobile_cols = ["証券コード", "銘柄名", "現在値", "需給の壁", "今買いか？", "評価"]
     
     return df, full_cols, mobile_cols
-
 
 # -----------------------------
 # メイン画面構築
 # -----------------------------
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 
-# ★スマホ用切り替えスイッチ
 is_mobile = st.toggle("📱 スマホ用シンプル表示", value=True)
 
-with st.expander("★ 評価基準とアイコンの見方", expanded=False):
+# ★【復活】評価基準とアイコンの見方
+with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
     st.markdown("""
 ### 1. 割安度評価（★）
 **理論株価**（本来の実力）と **現在値** を比較した「お得度」です。
@@ -323,6 +292,9 @@ with st.expander("★ 評価基準とアイコンの見方", expanded=False):
 - ★★☆☆☆：**普通**（上昇余地 **+5%** 〜 +15%）
 - ★☆☆☆☆：**トントン**（上昇余地 **0%** 〜 +5%）
 - ☆☆☆☆☆：**割高**（上昇余地 **0% 未満**）
+
+▶ 🤔 「割高」判定ばかり出る...という方へ（クリックで読む）
+> ※ 割高だから悪いというわけではありません。 むしろ優秀な企業だから株価が理論値をはるかに上回っている可能性もあります。 もしお持ちの銘柄で割高判定を受けた場合は、売り場の模索をするなどの指標としてお考えくださいませ。
 
 ### 2. 売買シグナル（矢印）
 | 表示 | 意味 | 判定ロジック |
@@ -347,11 +319,7 @@ with st.expander("★ 評価基準とアイコンの見方", expanded=False):
 """, unsafe_allow_html=True) 
 
 st.subheader("🔢 銘柄入力")
-raw_text = st.text_area(
-    "分析したい証券コードを入力してください",
-    height=100,
-    placeholder="例：\n7203\n9984\n285A"
-)
+raw_text = st.text_area("分析したい証券コードを入力してください", height=100, placeholder="例：\n7203\n9984\n285A")
 run_btn = st.button("🚀 AIで分析開始！", type="primary")
 
 st.divider()
@@ -382,8 +350,6 @@ if st.session_state["analysis_bundle"]:
     codes = st.session_state["analysis_codes"]
     
     df, full_cols, mobile_cols = bundle_to_df(bundle, codes)
-    
-    # ★表示する列の切り替え
     display_cols = mobile_cols if is_mobile else full_cols
     
     st.subheader("📊 分析結果")
@@ -391,24 +357,18 @@ if st.session_state["analysis_bundle"]:
     
     styled_df = df[display_cols].style.map(highlight_errors, subset=["銘柄名"])
     
-    # ★ここが進化！行選択モード（Checkbox廃止）
     event = st.dataframe(
         styled_df,
         use_container_width=True,
         hide_index=True,
-        on_select="rerun",      # 行をクリックしたら再実行
-        selection_mode="single-row" # 1行だけ選択
+        on_select="rerun",
+        selection_mode="single-row"
     )
     
-    # 選択された行があればチャートを表示
     if len(event.selection.rows) > 0:
         idx = event.selection.rows[0]
-        # 表示されている表の中でのインデックスなので、元のDataFrameからコードを特定
-        # ただしindexは0始まりで、dfは1始まりに加工してないが...
-        # ここでは単純に表示dfのiloc[idx]からコードを取得
         row_data = df[display_cols].iloc[idx]
         selected_code = row_data["証券コード"]
-        
         ticker_data = bundle.get(selected_code)
         
         st.divider()
@@ -416,14 +376,77 @@ if st.session_state["analysis_bundle"]:
         draw_wall_chart(ticker_data)
         st.divider()
 
-    st.info(
-        "**※ 評価対象外（—）について**\n"
-        "赤字やデータ不足の場合は算出できませんが、来期黒字予想なら「予想EPS」で計算しています。",
-        icon="ℹ️"
-    )
+    # ★【復活】評価対象外の説明・お天気マーク
+    st.info("""
+    **※ 評価が表示されない（—）銘柄について**
+    赤字決算や財務データが不足している銘柄は、投資リスクの観点から自動的に **「評価対象外」** としています。
+    具体的な理由は「根拠」の欄をご確認ください。
+
+    **※ 業績（お天気マーク）の判定基準**
+    - ☀ **（優良）**：ROE 8%以上 かつ ROA 5%以上（効率性・健全性ともに最強）
+    - ☁ **（普通）**：黒字だが、優良基準には満たない（一般的）
+    - ☔ **（赤字）**：ROE マイナス（赤字決算）
+    """)
 
 # -----------------------------
-# 🔧 管理者メニュー（最下部）
+# ★【復活】豆知識コーナー（エクスパンダー）
+# -----------------------------
+st.divider()
+st.subheader("📚 投資の豆知識・用語解説")
+
+with st.expander("📚 【豆知識】理論株価の計算根拠（グレアム数）とは？"):
+    st.markdown("""
+    ### 🧙‍♂️ "投資の神様"の師匠が考案した「割安株」の黄金式
+    このツールで算出している理論株価は、**「グレアム数」** という計算式をベースにしています。
+    これは、あの世界最強の投資家 **ウォーレン・バフェットの師匠** であり、「バリュー投資の父」と呼ばれる **ベンジャミン・グレアム** が考案した由緒ある指標です。
+
+    ### 💡 何がすごいの？
+    多くの投資家は「利益（PER）」だけで株を見がちですが、グレアム数は **「企業の利益（稼ぐ力）」** と **「純資産（持っている財産）」** の両面から、その企業が本来持っている **「真の実力値（適正価格）」** を厳しく割り出します。
+
+    **今の株価 ＜ 理論株価（グレアム数）** となっていれば、それは **「実力よりも過小評価されている（バーゲンセール中）」** という強力なサインになります。
+    """)
+
+with st.expander("🚀 【注目】なぜ「事業の勢い（売上成長率）」を見るの？"):
+    st.markdown("""
+    ### 📈 株価を押し上げる"真のエンジン"は売上にあり！
+    「利益」は経費削減などで一時的に作れますが、**「売上」** の伸びだけは誤魔化せません。売上が伸びているということは、**「その会社の商品が世の中でバカ売れしている」** という最強の証拠だからです。
+
+    ### 📊 成長スピードの目安（より厳しめのプロ基準）
+    - **🚀 +30% 以上： 【超・急成長】**
+      驚異的な伸びです。将来のスター株候補の可能性がありますが、期待先行で株価が乱高下するリスクも高くなります。
+    - **🏃 +10% 〜 +30%： 【成長軌道】**
+      安定してビジネスが拡大しています。安心して見ていられる優良企業のラインです。
+    - **🚶 0% 〜 +10%： 【安定・成熟】**
+      急成長はしていませんが、堅実に稼いでいます。配当狙いの銘柄に多いです。
+    - **📉 マイナス： 【衰退・縮小】**
+      去年より売れていません。ビジネスモデルの転換期か、斜陽産業の可能性があります。
+
+    ### 💡 分析のポイント 「赤字 × 急成長」の判断について
+    本来、赤字企業は投資対象外ですが、「事業の勢い」が **+30%** を超えている場合は、**「将来のシェア獲得のために、あえて広告や研究に大金を投じている（＝今は赤字を掘っている）」** だけの可能性があります。
+    ただし、黒字化できないまま倒産するリスクもあるため、上級者向けの「ハイリスク・ハイリターン枠」として慎重に見る必要があります。
+    """)
+
+with st.expander("🌊 ファンドや機関（大口）の\"動き\"を検知する先乗り指標"):
+    st.markdown("""
+    時価総額や出来高の異常検知を組み合わせ、**「大口投資家が仕掛けやすい（買収や買い上げを狙いやすい）条件」** が揃っているかを%で表示します。
+
+    ### 🔍 判定ロジック
+    先乗り（先回り）理論、季節性、対角性、テーマ性、ファンド動向、アクティビスト検知、企業成長性など、ニッチ性、株大量保有条件、あらゆる大口介入シグナルを自動で検出する独自ロジックを各項目ごとにポイント制にしてパーセンテージを算出する次世代の指数
+
+    ### 🎯 ゴールデンゾーン（時価総額 500億〜3000億円）
+    機関投資家等が一番動きやすく、TOB（買収）のターゲットにもなりやすい「おいしい規模感」。
+
+    ### 📉 PBR 1倍割れ（バーゲンセール）
+    「会社を解散して現金を配った方がマシ」という超割安状態。買収の標的にされやすい。
+
+    ### ⚡ 出来高急増（ボリュームスパイク）
+    今日の出来高が、普段の平均より2倍以上ある場合、裏で何かが起きている（誰かが集めている）可能性大！
+    **独自の先乗り（先回り）法を完全数値化に成功！ 🔥 80%以上は「激アツ」**
+    何らかの材料（ニュース）が出る前触れか、水面下で大口が集めている可能性があります。 大口の買い上げこそ暴騰のチャンスです。この指標もしっかりご確認ください。
+    """)
+
+# -----------------------------
+# 🔧 管理者メニュー
 # -----------------------------
 st.divider()
 with st.expander("🔧 管理者専用メニュー"):
