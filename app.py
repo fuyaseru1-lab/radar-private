@@ -31,6 +31,21 @@ hide_streamlit_style = """
             div.stButton > button:hover {
                 background-color: #e63e3e;
             }
+            
+            /* 詳細タグ（details）のデザイン調整 */
+            details {
+                background-color: #f9f9f9;
+                padding: 10px;
+                border-radius: 5px;
+                border: 1px solid #eee;
+                margin-top: 10px;
+                margin-bottom: 20px;
+            }
+            summary {
+                cursor: pointer;
+                font-weight: bold;
+                color: #31333F;
+            }
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -202,7 +217,8 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 st.caption("証券コードを入力すると、理論株価・配当・成長性・大口介入期待度を一括表示します。")
 
-# ★ここをクリックすると開く仕様に変更しました（expanded=False）
+# ★ここが修正ポイント！
+# HTMLタグを使って、Expanderの中にさらに「折りたたみQ&A」を埋め込みました。
 with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
     st.markdown("""
 ### 1. 割安度評価（★）
@@ -214,6 +230,14 @@ with st.expander("★ 評価基準とアイコンの見方（クリックで詳�
 - ★★☆☆☆：**普通**（上昇余地 **+5%** 〜 +15%）
 - ★☆☆☆☆：**トントン**（上昇余地 **0%** 〜 +5%）
 - ☆☆☆☆☆：**割高**（上昇余地 **0% 未満**）
+
+<details>
+<summary>🤔 「割高」判定ばかり出る…という方へ（クリックで読む）</summary>
+<br>
+<span style="color: #ff4b4b; font-weight: bold;">※ 割高だから悪いというわけではありません。</span><br>
+むしろ優秀な企業だから株価が理論値をはるかに上回っている可能性もあります。<br>
+もしお持ちの銘柄で割高判定を受けた場合は、<strong>売り場の模索をするなどの指標</strong>としてお考えくださいませ。
+</details>
 
 ---
 
@@ -229,11 +253,7 @@ with st.expander("★ 評価基準とアイコンの見方（クリックで詳�
 | **↓✖** | **危険** | **「買われすぎ」＋「暴落シグナル」** 等が点灯。手を出してはいけない。 |
 
 ※ 理論株価がマイナスの場合や取得できない場合は **評価不能（—）** になります。
-""")
-    with st.expander("🤔 「割高」判定ばかり出る…という方へ"):
-        st.markdown("""
-        :red[**※ 割高だから悪いというわけではありません。**] むしろ優秀な企業だから株価が理論値をはるかに上回っている可能性もあります。 もしお持ちの銘柄で割高判定を受けた場合は、**売り場の模索をするなどの指標**としてお考えくださいませ。
-        """)
+""", unsafe_allow_html=True) # ★HTMLを許可する設定
 
 st.subheader("🔢 銘柄入力")
 
