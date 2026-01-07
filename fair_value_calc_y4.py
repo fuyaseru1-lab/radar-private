@@ -3,9 +3,11 @@ from typing import Dict, List, Any, Optional
 import math
 import time
 import random
+import re
 import pandas as pd
 import numpy as np
 import streamlit as st
+import requests  # 和名取得用に追加
 
 try:
     import yfinance as yf
@@ -16,7 +18,12 @@ except Exception:
 # ⚙️ 設定（執念のリトライ設定）
 # ==========================================
 MAX_RETRIES = 3       # 失敗しても3回までやり直す
-RETRY_DELAY = 5.0     # やり直す前に5秒待つ（Yahooを怒らせないため）
+RETRY_DELAY = 5.0     # やり直す前に5秒待つ
+
+# 和名取得用の偽装ヘッダー
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+}
 
 def get_sleep_time():
     # 普段の待機時間（ゆらぎを持たせる）
@@ -88,7 +95,6 @@ def _calc_volume_profile_wall(hist, current_price, bins=50):
             diff = abs(lower_wall - current_price) / current_price
             if diff < threshold: is_lower_battle = True
         
-        # ★表記修正：円と壁を追加
         if is_upper_battle:
             return f"🔥上壁激戦中 ({upper_wall:,.0f}円)"
         elif is_lower_battle:
@@ -123,223 +129,15 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_with_retry(ticker_symbol):
-    """執念のリトライロジック：取れるまで3回粘る"""
+    """執念のリトライロジック"""
     for attempt in range(MAX_RETRIES):
         try:
             t = yf.Ticker(ticker_symbol)
-            # まずHistoryをとってみる
             hist = t.history(period="6mo")
             if hist is not None and not hist.empty:
-                return t, hist # 成功したら返す
+                return t, hist
             else:
                 raise ValueError("Empty Data")
         except Exception:
-            # 失敗したら待機してリトライ
             if attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_DELAY)
-            else:
-                return None, None
-    return None, None
-
-def _fetch_single_stock(code4: str) -> dict:
-    # 最初の待機
-    time.sleep(get_sleep_time())
-    
-    ticker = f"{code4}.T"
-    
-    # ★リトライ機能付きでデータ取得
-    t, hist = _fetch_with_retry(ticker)
-    
-    # それでもダメならエラー
-    if t is None or hist is None:
-         return {
-            "code": code4, "name": "エラー", "weather": "—", "price": None, 
-            "fair_value": None, "upside_pct": None, "note": "データ取得不可(Yahoo拒否)", 
-            "dividend": None, "dividend_amount": None, "growth": None, 
-            "market_cap": None, "big_prob": None,
-            "signal_icon": "—", "volume_wall": "—"
-        }
-
-    # ここから先はデータが取れた前提の処理
-    try:
-        price = _safe_float(hist["Close"].dropna().iloc[-1], None)
-        current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
-        
-        volume_wall = "—"
-        if len(hist) > 30 and price:
-            volume_wall = _calc_volume_profile_wall(hist, price)
-
-        signal_icon = "—"
-        if len(hist) > 75:
-            score = 0
-            rsi_series = _calc_rsi(hist["Close"])
-            rsi_val = rsi_series.iloc[-1] if not rsi_series.empty else 50
-            if rsi_val <= 30: score += 2
-            elif rsi_val <= 40: score += 1
-            elif rsi_val >= 70: score -= 2
-            elif rsi_val >= 60: score -= 1
-            
-            ma75 = hist["Close"].rolling(window=75).mean().iloc[-1]
-            if price > ma75: score += 1
-            else: score -= 1
-            
-            upper, lower = _calc_bollinger_bands(hist["Close"])
-            ub_val = upper.iloc[-1]
-            lb_val = lower.iloc[-1]
-            
-            if price <= lb_val: score += 2
-            elif price >= ub_val: score -= 2
-            
-            if score >= 3: signal_icon = "↑◎"
-            elif score >= 1: signal_icon = "↗〇"
-            elif score == 0: signal_icon = "→△"
-            elif score >= -2: signal_icon = "↘▲"
-            else: signal_icon = "↓✖"
-            
-    except Exception:
-        # 万が一計算でコケた場合
-        return {
-            "code": code4, "name": "計算エラー", "weather": "—", "price": None, 
-            "fair_value": None, "upside_pct": None, "note": "計算失敗", 
-            "dividend": None, "dividend_amount": None, "growth": None, 
-            "market_cap": None, "big_prob": None,
-            "signal_icon": "—", "volume_wall": "—"
-        }
-
-    # ----------------------------------------
-    # Phase 2: 財務データ（Info vs FastInfo）
-    # ----------------------------------------
-    info = {}
-    try:
-        info = t.info
-    except Exception:
-        info = {}
-
-    fast_info = {}
-    try:
-        fast_info = t.fast_info
-    except:
-        pass
-
-    def get_val(key_info, key_fast=None):
-        val = info.get(key_info)
-        if val is None and key_fast and fast_info:
-            try:
-                val = getattr(fast_info, key_fast, None)
-            except:
-                val = None
-        return _safe_float(val, None)
-
-    eps_trail  = get_val("trailingEps")
-    eps_fwd    = get_val("forwardEps")
-    bps        = get_val("bookValue")
-    roe        = get_val("returnOnEquity")
-    roa        = get_val("returnOnAssets")
-    market_cap = get_val("marketCap", "market_cap")
-    avg_volume = get_val("averageVolume")
-    
-    long_name = info.get("longName", info.get("shortName", f"({code4})"))
-    
-    pbr = (price / bps) if (price and bps and bps > 0) else None
-    
-    volume_ratio = 0
-    if avg_volume and avg_volume > 0:
-        volume_ratio = current_volume / avg_volume
-    
-    big_prob = _calc_big_player_score(market_cap, pbr, volume_ratio)
-    
-    div_rate = None
-    raw_div = info.get("dividendRate")
-    if raw_div is not None and price and price > 0:
-        div_rate = (raw_div / price) * 100.0
-
-    rev_growth = get_val("revenueGrowth")
-    if rev_growth: rev_growth *= 100.0
-
-    weather = _get_weather_icon(roe, roa)
-
-    # ----------------------------------------
-    # Phase 3: 理論株価計算
-    # ----------------------------------------
-    fair_value = None
-    note = "OK"
-    calc_eps = None
-    is_forecast = False
-    
-    q_type = info.get("quoteType", "").upper()
-    short_name = info.get("shortName", "").upper()
-    is_fund = False
-    if q_type in ["ETF", "MUTUALFUND"]: is_fund = True
-    elif "ETF" in short_name or "REIT" in short_name or "リート" in long_name: is_fund = True
-
-    if is_fund:
-        note = "ETF/REIT対象外"
-    elif not price: 
-        note = "現在値不明"
-    elif bps is None: 
-        note = "財務データ取得失敗"
-    else:
-        if eps_trail is not None and eps_trail > 0:
-            calc_eps = eps_trail
-        elif eps_fwd is not None and eps_fwd > 0:
-            calc_eps = eps_fwd
-            is_forecast = True
-        
-        if calc_eps is None: 
-            if eps_trail is not None and eps_trail < 0:
-                 note = "赤字のため算出不可"
-            else:
-                 note = "算出不能"
-        else:
-            product = 22.5 * calc_eps * bps
-            if product > 0:
-                fair_value = round(math.sqrt(product), 0)
-                if is_forecast:
-                    note = f"※予想EPS {calc_eps:,.1f} × BPS {bps:,.0f}"
-                else:
-                    note = f"EPS {calc_eps:,.1f} × BPS {bps:,.0f}"
-            else:
-                note = "資産毀損リスクあり"
-    
-    upside_pct = None
-    if price and fair_value:
-         upside_pct = round((fair_value / price - 1.0) * 100.0, 2)
-
-    return {
-        "code": code4, "name": long_name, "weather": weather, "price": price,
-        "fair_value": fair_value, "upside_pct": upside_pct, "note": note, 
-        "dividend": div_rate, "dividend_amount": raw_div,
-        "growth": rev_growth, "market_cap": market_cap, "big_prob": big_prob,
-        "signal_icon": signal_icon,
-        "volume_wall": volume_wall
-    }
-
-@st.cache_data(ttl=43200, show_spinner=False)
-def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
-    out = {}
-    total = len(codes)
-    progress_bar = None
-    try:
-        if total > 1:
-            progress_bar = st.progress(0)
-    except: pass
-
-    for i, code in enumerate(codes):
-        try:
-            res = _fetch_single_stock(code)
-            out[code] = res
-        except Exception:
-            out[code] = {
-                "code": code, "name": "エラー", "weather": "—", "price": None,
-                "fair_value": None, "upside_pct": None, "note": "処理失敗",
-                "dividend": None, "dividend_amount": None, "growth": None,
-                "market_cap": None, "big_prob": None, "signal_icon": "—", "volume_wall": "—"
-            }
-        
-        if progress_bar:
-            progress_bar.progress((i + 1) / total)
-
-    if progress_bar:
-        progress_bar.empty()
-        
-    return out
