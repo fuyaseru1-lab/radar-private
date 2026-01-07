@@ -93,7 +93,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 📈 チャート描画関数（修正版：出来高プロファイルから抵抗線を算出）
+# 📈 チャート描画関数（抵抗線ロジック実装済み）
 # -----------------------------
 def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist = ticker_data.get("hist_data")
@@ -116,46 +116,40 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist['bin'] = pd.cut(hist['Close'], bins=bin_edges)
     vol_profile = hist.groupby('bin', observed=False)['Volume'].sum()
 
-    # --- 2. 抵抗線・支持線のロジック（出来高最大箇所を探す） ---
-    
-    # 候補リストを作成
-    upper_candidates = [] # 赤用（現在値より上）
-    lower_candidates = [] # 青用（現在値以下）
+    # --- 2. 抵抗線・支持線のロジック ---
+    upper_candidates = []
+    lower_candidates = []
 
     for interval, volume in vol_profile.items():
         mid_price = interval.mid
-        if volume == 0: continue # 出来高ゼロは無視
+        if volume == 0: continue
         
         if mid_price > current_price:
             upper_candidates.append({'vol': volume, 'price': mid_price})
         else:
             lower_candidates.append({'vol': volume, 'price': mid_price})
 
-    # --- 赤（上値抵抗線）の決定 ---
-    # ロジック：出来高が最大のもの。同じなら「低い方（現在値に近い方）」を採用
-    # ソート順：①出来高(降順) ②価格(昇順)
+    # 赤（上値抵抗線）：出来高最大 > 価格低い方
     if upper_candidates:
         best_red = sorted(upper_candidates, key=lambda x: (-x['vol'], x['price']))[0]
         resistance_price = best_red['price']
     else:
-        resistance_price = hist['High'].max() # 候補がなければ最高値
+        resistance_price = hist['High'].max()
 
-    # --- 青（下値抵抗線）の決定 ---
-    # ロジック：出来高が最大のもの。同じなら「高い方（現在値に近い方）」を採用
-    # ソート順：①出来高(降順) ②価格(降順) ※マイナスをつけて降順にする
+    # 青（下値抵抗線）：出来高最大 > 価格高い方
     if lower_candidates:
         best_blue = sorted(lower_candidates, key=lambda x: (-x['vol'], -x['price']))[0]
         support_price = best_blue['price']
     else:
-        support_price = hist['Low'].min() # 候補がなければ最安値
+        support_price = hist['Low'].min()
 
     # --- バーの色分け ---
     bar_colors = []
     for interval in vol_profile.index:
         if interval.mid > current_price:
-            bar_colors.append('rgba(255, 82, 82, 0.4)') # 薄い赤
+            bar_colors.append('rgba(255, 82, 82, 0.4)')
         else:
-            bar_colors.append('rgba(33, 150, 243, 0.4)') # 薄い青
+            bar_colors.append('rgba(33, 150, 243, 0.4)')
 
     fig = make_subplots(
         rows=1, cols=2, 
@@ -178,8 +172,6 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     ), row=1, col=2)
 
     # --- ライン描画 ---
-    
-    # 🟥 上値抵抗線（抜ければ激アツ）
     fig.add_hline(
         y=resistance_price, 
         line_color="#ef4444", 
@@ -190,7 +182,6 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         row=1, col=1
     )
 
-    # 🟦 下値抵抗線（割れれば即逃げ）
     fig.add_hline(
         y=support_price, 
         line_color="#3b82f6", 
@@ -237,12 +228,6 @@ def fmt_yen(x):
     if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
     try: return f"{float(x):,.0f} 円"
     except: return "—"
-def fmt_yen_diff(x):
-    if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
-    try:
-        v = float(x)
-        return f"+{v:,.0f} 円" if v>=0 else f"▲ {abs(v):,.0f} 円"
-    except: return "—"
 def fmt_pct(x):
     if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
     try: return f"{float(x):.2f}%"
@@ -280,6 +265,46 @@ def highlight_errors(val):
         return 'color: #ff4b4b; font-weight: bold;'
     return ''
 
+# ★ランク付け用のスコア計算関数
+def calculate_score_and_rank(row):
+    score = 0
+    
+    # 1. 上昇余地 (Max 40点)
+    up = row.get('upside_pct_num', 0)
+    if pd.isna(up): up = 0
+    if up >= 50: score += 40
+    elif up >= 30: score += 30
+    elif up >= 15: score += 20
+    elif up > 0: score += 10
+    
+    # 2. 大口介入 (Max 30点)
+    prob = row.get('prob_num', 0)
+    if pd.isna(prob): prob = 0
+    if prob >= 80: score += 30
+    elif prob >= 60: score += 20
+    elif prob >= 40: score += 10
+    
+    # 3. 事業成長 (Max 20点)
+    growth = row.get('growth_num', 0)
+    if pd.isna(growth): growth = 0
+    if growth >= 30: score += 20
+    elif growth >= 10: score += 10
+    
+    # 4. 財務健全性 (Max 10点)
+    weather = row.get('weather', '')
+    if weather == '☀': score += 10
+    elif weather == '☁': score += 5
+    
+    # ランク判定
+    if score >= 95: return "SSS"
+    if score >= 90: return "SS"
+    if score >= 85: return "S"
+    if score >= 75: return "A"
+    if score >= 60: return "B"
+    if score >= 45: return "C"
+    if score >= 30: return "D"
+    return "E"
+
 def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     if isinstance(bundle, dict):
@@ -292,10 +317,8 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
                      v["volume_wall"] = "—"
                      v["signal_icon"] = "—"
                      v["weather"] = "—"
-                
                 if v.get("note") == "ETF/REIT対象外":
                      v["note"] = "ETF/REITのため対象外"
-                
                 row = {"ticker": code, **v}
             else:
                 row = {"ticker": code, "name": "存在しない銘柄", "note": "—", "value": v}
@@ -322,15 +345,22 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["mc_num"] = df["market_cap"].apply(_as_float)
     df["prob_num"] = df["big_prob"].apply(_as_float)
     
+    # 星計算
     df["rating"] = df["upside_pct_num"].apply(calc_rating_from_upside)
     df["stars"] = df["rating"].apply(to_stars)
     
+    # エラー処理
     error_mask = df["name"] == "存在しない銘柄"
     df.loc[error_mask, "stars"] = "—"
     df.loc[error_mask, "price"] = None
     df.loc[error_mask, "fair_value"] = None 
     df.loc[error_mask, "note"] = "—"
 
+    # ★ランク計算実行
+    df["ランク"] = df.apply(calculate_score_and_rank, axis=1)
+    df.loc[error_mask, "ランク"] = "—"
+
+    # カラム整理
     df["証券コード"] = df["ticker"]
     df["銘柄名"] = df["name"].fillna("—")
     df["業績"] = df["weather"].fillna("—")
@@ -348,11 +378,11 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["根拠"] = df["note"].fillna("—")
 
     df.index = df.index + 1
-    
     df["詳細"] = False
     
+    # ランクを一番左へ
     show_cols = [
-        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁",
+        "ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁",
         "詳細", 
         "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠"
     ]
@@ -364,40 +394,34 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 # ==========================================
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 
-with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
+with st.expander("★ ランク・評価基準の見方（クリックで詳細を表示）", expanded=False):
     st.markdown("""
+### 👑 総合ランク（SSS〜E）
+理論株価の上昇余地だけでなく、**「大口の動き」「事業の成長性」「財務の安全性」**を総合的にスコア化（100点満点）した格付けです。
+- **SSS (95-100点)**：**神**。全ての条件が揃った奇跡の銘柄。
+- **SS (90-94点)**：**最強**。ほぼ死角なし。
+- **S (85-89点)**：**超優秀**。文句なしの買い候補。
+- **A (75-84点)**：**優良**。合格点。
+- **B (60-74点)**：**普通**。悪くはない。
+- **C〜E**：**微妙〜危険**。
+
 ### 1. 割安度評価（★）
 **理論株価**（本来の実力）と **現在値** を比較した「お得度」です。
 - :red[★★★★★：**お宝**（上昇余地 **+50%** 以上）]
 - ★★★★☆：**激アツ**（上昇余地 **+30%** 〜 +50%）
 - ★★★☆☆：**有望**（上昇余地 **+15%** 〜 +30%）
-- ★★☆☆☆：**普通**（上昇余地 **+5%** 〜 +15%）
-- ★☆☆☆☆：**トントン**（上昇余地 **0%** 〜 +5%）
-- ☆☆☆☆☆：**割高**（上昇余地 **0% 未満**）
-
-▶ 🤔 「割高」判定ばかり出る...という方へ（クリックで読む）
-> ※ 割高だから悪いというわけではありません。 むしろ優秀な企業だから株価が理論値をはるかに上回っている可能性もあります。 もしお持ちの銘柄で割高判定を受けた場合は、売り場の模索をするなどの指標としてお考えくださいませ。
 
 ### 2. 売買シグナル（矢印）
 | 表示 | 意味 | 判定ロジック |
 | :--- | :--- | :--- |
 | **↑◎** | **激熱** | **「底値圏」＋「売られすぎ」＋「上昇トレンド」** 等の好条件が3つ以上重なった最強の買い場！ |
 | **↗〇** | **買い** | 複数のプラス要素あり。打診買いのチャンス。 |
-| **→△** | **様子見** | 可もなく不可もなく。方向感が出るまで待つのが無難。 |
-| **↘▲** | **売り** | 天井圏や下落トレンド入り。利益確定や損切りの検討を。 |
 | **↓✖** | **危険** | **「買われすぎ」＋「暴落シグナル」** 等が点灯。手を出してはいけない。 |
 
 ### 3. 需給の壁（突破力）
-**過去6ヶ月間で最も取引が活発だった価格帯（しこり玉・岩盤）** です。
-この壁は**「跳ね返される場所（反転）」**であると同時に、**「抜けた後の加速装置（突破）」**でもあります。
-- **🚧 上壁（戻り売り圧力）**
-    - **【基本】** ここまでは上がっても叩き落とされやすい（抵抗線）。
-    - **【突破】** しかしここを食い破れば、売り手不在の**「青天井」**モード突入！
-- **🛡️ 下壁（押し目買い支持）**
-    - **【基本】** ここで下げ止まって反発しやすい（支持線）。
-    - **【割込】** しかしここを割り込むと、ガチホ勢が全員含み損になり**「パニック売り」**が連鎖する恐れあり。
-- **🔥 激戦中（分岐点）**
-    - まさに今、その壁の中で戦っている。突破するか、跳ね返されるか、要注目！
+**過去6ヶ月間で最も取引が活発だった価格帯** です。
+- **🚧 上壁**：ここまでは上がっても叩き落とされやすい（抵抗線）。**ここを抜ければ青天井！**
+- **🛡️ 下壁**：ここで下げ止まって反発しやすい（支持線）。**ここを割ったら即逃げ！**
 """, unsafe_allow_html=True) 
 
 st.subheader("🔢 銘柄入力")
@@ -448,10 +472,16 @@ if st.session_state["analysis_bundle"]:
                 help="チャートを表示",
                 default=False,
             ),
+            # ★ランク列の設定
+            "ランク": st.column_config.TextColumn(
+                "ランク",
+                help="総合スコア評価（SSS〜E）",
+                width="small"
+            ),
             "証券コード": st.column_config.TextColumn(disabled=True),
             "銘柄名": st.column_config.TextColumn(disabled=True),
         },
-        disabled=["証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠"]
+        disabled=["ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠"]
     )
     
     selected_rows = edited_df[edited_df["詳細"] == True]
@@ -470,14 +500,7 @@ if st.session_state["analysis_bundle"]:
     st.info("""
     **※ 評価が表示されない（—）銘柄について**
     赤字決算や財務データが不足している銘柄は、投資リスクの観点から自動的に **「評価対象外」** としています。
-
     ただし、**「今は赤字だが来期は黒字予想」の場合は、自動的に『予想EPS』を使って理論株価を算出**しています。
-    その場合、根拠欄に **「※予想EPS参照」** と記載されます。
-
-    **※ 業績（お天気マーク）の判定基準**
-    - ☀ **（優良）**：ROE 8%以上 かつ ROA 5%以上（効率性・健全性ともに最強）
-    - ☁ **（普通）**：黒字だが、優良基準には満たない（一般的）
-    - ☔ **（赤字）**：ROE マイナス（赤字決算）
     """)
 
 # -----------------------------
@@ -492,9 +515,6 @@ with st.expander("📚 【豆知識】理論株価の計算根拠（グレアム
     このツールで算出している理論株価は、**「グレアム数」** という計算式をベースにしています。
     これは、あの世界最強の投資家 **ウォーレン・バフェットの師匠** であり、「バリュー投資の父」と呼ばれる **ベンジャミン・グレアム** が考案した由緒ある指標です。
 
-    ### 💡 何がすごいの？
-    多くの投資家は「利益（PER）」だけで株を見がちですが、グレアム数は **「企業の利益（稼ぐ力）」** と **「純資産（持っている財産）」** の両面から、その企業が本来持っている **「真の実力値（適正価格）」** を厳しく割り出します。
-
     **今の株価 ＜ 理論株価（グレアム数）** となっていれば、それは **「実力よりも過小評価されている（バーゲンセール中）」** という強力なサインになります。
     """)
 
@@ -502,39 +522,14 @@ with st.expander("🚀 【注目】なぜ「事業の勢い（売上成長率）
     st.markdown("""
     ### 📈 株価を押し上げる"真のエンジン"は売上にあり！
     「利益」は経費削減などで一時的に作れますが、**「売上」** の伸びだけは誤魔化せません。売上が伸びているということは、**「その会社の商品が世の中でバカ売れしている」** という最強の証拠だからです。
-
-    ### 📊 成長スピードの目安（より厳しめのプロ基準）
-    - **🚀 +30% 以上： 【超・急成長】**
-      驚異的な伸びです。将来のスター株候補の可能性がありますが、期待先行で株価が乱高下するリスクも高くなります。
-    - **🏃 +10% 〜 +30%： 【成長軌道】**
-      安定してビジネスが拡大しています。安心して見ていられる優良企業のラインです。
-    - **🚶 0% 〜 +10%： 【安定・成熟】**
-      急成長はしていませんが、堅実に稼いでいます。配当狙いの銘柄に多いです。
-    - **📉 マイナス： 【衰退・縮小】**
-      去年より売れていません。ビジネスモデルの転換期か、斜陽産業の可能性があります。
-
-    ### 💡 分析のポイント 「赤字 × 急成長」の判断について
-    本来、赤字企業は投資対象外ですが、「事業の勢い」が **+30%** を超えている場合は、**「将来のシェア獲得のために、あえて広告や研究に大金を投じている（＝今は赤字を掘っている）」** だけの可能性があります。
-    ただし、黒字化できないまま倒産するリスクもあるため、上級者向けの「ハイリスク・ハイリターン枠」として慎重に見る必要があります。
+    - **🚀 +30% 以上： 【超・急成長】** 将来のスター株候補！
+    - **🏃 +10% 〜 +30%： 【成長軌道】** 安心の優良企業。
     """)
 
 with st.expander("🌊 ファンドや機関（大口）の\"動き\"を検知する先乗り指標"):
     st.markdown("""
     時価総額や出来高の異常検知を組み合わせ、**「大口投資家が仕掛けやすい（買収や買い上げを狙いやすい）条件」** が揃っているかを%で表示します。
-
-    ### 🔍 判定ロジック
-    先乗り（先回り）理論、季節性、対角性、テーマ性、ファンド動向、アクティビスト検知、企業成長性など、ニッチ性、株大量保有条件、あらゆる大口介入シグナルを自動で検出する独自ロジックを各項目ごとにポイント制にしてパーセンテージを算出する次世代の指数
-
-    ### 🎯 ゴールデンゾーン（時価総額 500億〜3000億円）
-    機関投資家等が一番動きやすく、TOB（買収）のターゲットにもなりやすい「おいしい規模感」。
-
-    ### 📉 PBR 1倍割れ（バーゲンセール）
-    「会社を解散して現金を配った方がマシ」という超割安状態。買収の標的にされやすい。
-
-    ### ⚡ 出来高急増（ボリュームスパイク）
-    今日の出来高が、普段の平均より2倍以上ある場合、裏で何かが起きている（誰かが集めている）可能性大！
-    **独自の先乗り（先回り）法を完全数値化に成功！ 🔥 80%以上は「激アツ」**
-    何らかの材料（ニュース）が出る前触れか、水面下で大口が集めている可能性があります。 大口の買い上げこそ暴騰のチャンスです。この指標もしっかりご確認ください。
+    **独自ロジックで80%以上は「激アツ」！** 大口の買い上げこそ暴騰のチャンスです。
     """)
 
 # -----------------------------
