@@ -331,7 +331,7 @@ if run_btn:
         st.stop()
 
     # 待機時間を考慮したメッセージ
-    with st.spinner(f"🚀 爆速で分析中...（Yahoo対策のため1銘柄につき数秒お待ちください。アクセス集中時はリトライします）"):
+    with st.spinner(f"🚀 高速分析中...（1銘柄につき数3秒ほどお待ちください。アクセス集中時はリトライ実行）"):
         try:
             bundle = fv.calc_fuyaseru_bundle(codes)
         except Exception as e:
