@@ -11,14 +11,11 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 🔑 パスワード設定
+# 🔑 パスワード設定（変更しました）
 # ==========================================
-try:
-    LOGIN_PASSWORD = st.secrets["LOGIN_PASSWORD"]
-    ADMIN_CODE = st.secrets["ADMIN_CODE"]
-except Exception:
-    st.error("❌ システムエラー：パスワード設定（Secrets）が見つかりません。")
-    st.stop()
+# st.secretsが設定されていなくても動くように直接指定に変更しました
+LOGIN_PASSWORD = "7777"
+ADMIN_CODE = "77777"
 
 # ==========================================
 # UI設定
@@ -97,7 +94,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 📈 チャート描画関数（タイトル付き）
+# 📈 チャート描画関数（改造版：赤青ライン追加・理論株価削除）
 # -----------------------------
 def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist = ticker_data.get("hist_data")
@@ -108,10 +105,15 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     name = ticker_data.get("name", "Unknown")
     code = ticker_data.get("code", "----")
     current_price = ticker_data.get("price", 0)
-    fair_value = ticker_data.get("fair_value")
+    # fair_value = ticker_data.get("fair_value") # 理論株価変数は削除
 
     hist = hist.reset_index()
     hist['Date'] = pd.to_datetime(hist.iloc[:, 0]).dt.tz_localize(None)
+
+    # --- 抵抗線・支持線の計算（簡易ロジック：直近の高値・安値） ---
+    # ※本来はテクニカル分析が必要ですが、視覚化のために期間内の最高値・最安値を使用します
+    resistance_price = hist['High'].max() # 赤ライン用
+    support_price = hist['Low'].min()     # 青ライン用
 
     bins = 50
     p_min = min(hist['Close'].min(), current_price * 0.9)
@@ -123,26 +125,64 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     bar_colors = []
     for interval in vol_profile.index:
         if interval.mid > current_price:
-            bar_colors.append('rgba(255, 82, 82, 0.6)')
+            bar_colors.append('rgba(255, 82, 82, 0.4)') # 薄い赤
         else:
-            bar_colors.append('rgba(33, 150, 243, 0.6)')
+            bar_colors.append('rgba(33, 150, 243, 0.4)') # 薄い青
 
-    # ★ここに「需給の壁」というタイトルを追加！
     fig = make_subplots(
         rows=1, cols=2, 
         shared_yaxes=True, 
         column_widths=[0.75, 0.25], 
         horizontal_spacing=0.02,
-        subplot_titles=("📉 株価トレンド", "🧱 需給の壁") # ★キャッチーなタイトル設定
+        subplot_titles=("📉 トレンド分析", "🧱 需給の壁")
     )
 
-    fig.add_trace(go.Candlestick(x=hist['Date'], open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'], name='株価'), row=1, col=1)
-    fig.add_trace(go.Bar(x=vol_profile.values, y=[i.mid for i in vol_profile.index], orientation='h', marker_color=bar_colors, name='出来高'), row=1, col=2)
+    # 1. ローソク足
+    fig.add_trace(go.Candlestick(
+        x=hist['Date'], open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'], 
+        name='株価'
+    ), row=1, col=1)
 
-    if fair_value:
-        fig.add_hline(y=fair_value, line_dash="dash", line_color="white", annotation_text="理論株価", annotation_position="top left")
+    # 2. 出来高プロファイル
+    fig.add_trace(go.Bar(
+        x=vol_profile.values, y=[i.mid for i in vol_profile.index], 
+        orientation='h', marker_color=bar_colors, name='出来高'
+    ), row=1, col=2)
 
-    fig.update_layout(title=f"📊 {name} ({code})", height=450, showlegend=False, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=60, b=10), dragmode=False)
+    # --- ★ここが変更点：赤と青のラインを追加 ---
+    
+    # 🟥 上値抵抗線（抜ければ激アツ）
+    fig.add_hline(
+        y=resistance_price, 
+        line_color="#ef4444", 
+        line_width=2,
+        annotation_text="🟥 上値抵抗線（抜ければ激アツ）", 
+        annotation_position="top left",
+        annotation_font_color="#ef4444",
+        row=1, col=1
+    )
+
+    # 🟦 下値抵抗線（割れれば即逃げ）
+    fig.add_hline(
+        y=support_price, 
+        line_color="#3b82f6", 
+        line_width=2,
+        annotation_text="🟦 下値抵抗線（割れれば即逃げ）", 
+        annotation_position="bottom left",
+        annotation_font_color="#3b82f6",
+        row=1, col=1
+    )
+
+    # 理論株価の描画コードは削除しました
+
+    fig.update_layout(
+        title=f"📊 {name} ({code})", 
+        height=450, 
+        showlegend=False, 
+        xaxis_rangeslider_visible=False, 
+        margin=dict(l=10, r=10, t=60, b=10), 
+        dragmode=False
+    )
     fig.update_xaxes(fixedrange=True) 
     fig.update_yaxes(fixedrange=True)
 
@@ -166,7 +206,7 @@ def sanitize_codes(raw_codes: List[str]) -> List[str]:
         if c not in uniq: uniq.append(c)
     return uniq
 
-# ★フォーマット関数（nan撲滅・完全版）
+# ★フォーマット関数
 def fmt_yen(x):
     if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
     try: return f"{float(x):,.0f} 円"
@@ -472,7 +512,7 @@ with st.expander("🌊 ファンドや機関（大口）の\"動き\"を検知�
     """)
 
 # -----------------------------
-# 🔧 管理者メニュー
+# 🔧 管理者メニュー（パスワード変更反映）
 # -----------------------------
 st.divider()
 with st.expander("🔧 管理者専用メニュー"):
