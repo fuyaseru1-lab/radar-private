@@ -158,22 +158,23 @@ def sanitize_codes(raw_codes: List[str]) -> List[str]:
         if c not in uniq: uniq.append(c)
     return uniq
 
+# ★フォーマット関数（nan撲滅強化版）
 def fmt_yen(x):
-    if x is None or pd.isna(x): return "—"
+    if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
     try: return f"{float(x):,.0f} 円"
     except: return "—"
 def fmt_yen_diff(x):
-    if x is None or pd.isna(x): return "—"
+    if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
     try:
         v = float(x)
         return f"+{v:,.0f} 円" if v>=0 else f"▲ {abs(v):,.0f} 円"
     except: return "—"
 def fmt_pct(x):
-    if x is None or pd.isna(x): return "—"
+    if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
     try: return f"{float(x):.2f}%"
     except: return "—"
 def fmt_market_cap(x):
-    if x is None or pd.isna(x): return "—"
+    if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
     try:
         v = float(x)
         if v >= 1e12: return f"{v/1e12:.2f} 兆円"
@@ -181,7 +182,7 @@ def fmt_market_cap(x):
         else: return f"{v:,.0f} 円"
     except: return "—"
 def fmt_big_prob(x):
-    if x is None or pd.isna(x): return "—"
+    if x is None or pd.isna(x) or str(x).lower() == 'nan': return "—"
     try:
         v = float(x)
         if v >= 80: return f"🔥 {v:.0f}%" 
@@ -256,6 +257,7 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     error_mask = df["name"] == "存在しない銘柄"
     df.loc[error_mask, "stars"] = "—"
     df.loc[error_mask, "price"] = None
+    df.loc[error_mask, "fair_value"] = None # nan対策
     df.loc[error_mask, "note"] = "—"
 
     df["証券コード"] = df["ticker"]
@@ -263,23 +265,21 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["業績"] = df["weather"].fillna("—")
     df["現在値"] = df["price"].apply(fmt_yen)
     df["理論株価"] = df["fair_value"].apply(fmt_yen)
-    df["上昇余地"] = df["upside_pct_num"].apply(fmt_pct) # 短縮
+    df["上昇余地"] = df["upside_pct_num"].apply(fmt_pct)
     df["評価"] = df["stars"]
-    df["売買"] = df["signal_icon"].fillna("—") # 短縮
+    df["売買"] = df["signal_icon"].fillna("—")
     df["需給の壁"] = df["volume_wall"].fillna("—")
     df["配当利回り"] = df["div_num"].apply(fmt_pct)
     df["年間配当"] = df["div_amount_num"].apply(fmt_yen)
     df["事業の勢い"] = df["growth_num"].apply(fmt_pct)
     df["時価総額"] = df["mc_num"].apply(fmt_market_cap)
-    df["大口介入"] = df["prob_num"].apply(fmt_big_prob) # 短縮
-    df["根拠"] = df["note"].fillna("—") # 短縮
+    df["大口介入"] = df["prob_num"].apply(fmt_big_prob)
+    df["根拠"] = df["note"].fillna("—")
 
     df.index = df.index + 1
     
-    # 詳細チェックボックス列（エラーなら無効化したいがデータ型統一のためFalseのまま）
     df["詳細"] = False
     
-    # ★項目名を短くしてPCでの横スクロールを防止
     show_cols = [
         "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁",
         "詳細", 
@@ -293,7 +293,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 # -----------------------------
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 
-# ★評価基準（省略なし）
 with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
     st.markdown("""
 ### 1. 割安度評価（★）
@@ -368,7 +367,7 @@ if st.session_state["analysis_bundle"]:
     
     styled_df = df.style.map(highlight_errors, subset=["銘柄名"])
     
-    # ★data_editor：詳細チェックボックス付き
+    # ★複数選択対応
     edited_df = st.data_editor(
         styled_df,
         use_container_width=True,
@@ -382,24 +381,23 @@ if st.session_state["analysis_bundle"]:
             "証券コード": st.column_config.TextColumn(disabled=True),
             "銘柄名": st.column_config.TextColumn(disabled=True),
         },
-        # 編集不可
         disabled=["証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠"]
     )
     
     selected_rows = edited_df[edited_df["詳細"] == True]
     
+    # ★ここが重要：選択された行すべてをループしてチャートを表示（同時表示）
     if not selected_rows.empty:
-        selected_code = selected_rows.iloc[0]["証券コード"]
-        ticker_data = bundle.get(selected_code)
-        
-        # エラー銘柄はチャートを表示させない
-        if ticker_data and ticker_data.get("name") != "存在しない銘柄" and ticker_data.get("hist_data") is not None:
-            st.divider()
-            st.markdown(f"### 📉 詳細分析チャート：{ticker_data.get('name')}")
-            draw_wall_chart(ticker_data)
-            st.divider()
+        for _, row in selected_rows.iterrows():
+            selected_code = row["証券コード"]
+            ticker_data = bundle.get(selected_code)
+            
+            # エラー以外の銘柄のみ表示
+            if ticker_data and ticker_data.get("name") != "存在しない銘柄" and ticker_data.get("hist_data") is not None:
+                st.divider()
+                st.markdown(f"### 📉 詳細分析チャート：{ticker_data.get('name')}")
+                draw_wall_chart(ticker_data)
 
-    # ★復活：赤字でも来期予想があれば計算する旨の記載
     st.info("""
     **※ 評価が表示されない（—）銘柄について**
     赤字決算や財務データが不足している銘柄は、投資リスクの観点から自動的に **「評価対象外」** としています。
