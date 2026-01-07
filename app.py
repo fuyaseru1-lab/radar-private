@@ -25,7 +25,6 @@ except Exception:
 # ==========================================
 st.set_page_config(page_title="フヤセルブレイン - AI理論株価分析ツール", page_icon="📈", layout="wide")
 
-# ★CSS：文字色黒固定・チャート調整
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -159,7 +158,6 @@ def sanitize_codes(raw_codes: List[str]) -> List[str]:
         if c not in uniq: uniq.append(c)
     return uniq
 
-# ★フォーマット関数の修正（nanを—に統一）
 def fmt_yen(x):
     if x is None or pd.isna(x): return "—"
     try: return f"{float(x):,.0f} 円"
@@ -213,15 +211,24 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
         for code in codes:
             v = bundle.get(code)
             if isinstance(v, dict):
-                # ★文言修正: ETF/REITのため対象外
+                # エラー系の統一処理
+                if v.get("note") == "データ取得不可(Yahoo拒否)" or v.get("name") == "エラー" or v.get("name") == "計算エラー":
+                     v["name"] = "存在しない銘柄"
+                     v["note"] = "—"
+                     v["volume_wall"] = "—"
+                     v["signal_icon"] = "—"
+                     v["weather"] = "—"
+                
+                # 文言修正
                 if v.get("note") == "ETF/REIT対象外":
                      v["note"] = "ETF/REITのため対象外"
+                
                 row = {"ticker": code, **v}
             else:
-                row = {"ticker": code, "note": "形式エラー", "value": v}
+                row = {"ticker": code, "name": "存在しない銘柄", "note": "—", "value": v}
             rows.append(row)
     else:
-        rows.append({"ticker": ",".join(codes), "note": "エラー", "value": bundle})
+        rows.append({"ticker": ",".join(codes), "name": "存在しない銘柄", "note": "—", "value": bundle})
 
     df = pd.DataFrame(rows)
     cols = ["name", "weather", "price", "fair_value", "upside_pct", "dividend", "dividend_amount", "growth", "market_cap", "big_prob", "note", "signal_icon", "volume_wall"]
@@ -244,35 +251,39 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     
     df["rating"] = df["upside_pct_num"].apply(calc_rating_from_upside)
     df["stars"] = df["rating"].apply(to_stars)
-    df.loc[df["name"] == "存在しない銘柄", "stars"] = "—"
+    
+    # エラー行のクレンジング
+    error_mask = df["name"] == "存在しない銘柄"
+    df.loc[error_mask, "stars"] = "—"
+    df.loc[error_mask, "price"] = None
+    df.loc[error_mask, "note"] = "—"
 
     df["証券コード"] = df["ticker"]
     df["銘柄名"] = df["name"].fillna("—")
     df["業績"] = df["weather"].fillna("—")
     df["現在値"] = df["price"].apply(fmt_yen)
     df["理論株価"] = df["fair_value"].apply(fmt_yen)
-    df["上昇余地（円）"] = df["upside_yen_num"].apply(fmt_yen_diff)
-    df["上昇余地（％）"] = df["upside_pct_num"].apply(fmt_pct)
+    df["上昇余地"] = df["upside_pct_num"].apply(fmt_pct) # 短縮
     df["評価"] = df["stars"]
-    df["今買いか？"] = df["signal_icon"].fillna("—")
+    df["売買"] = df["signal_icon"].fillna("—") # 短縮
     df["需給の壁"] = df["volume_wall"].fillna("—")
     df["配当利回り"] = df["div_num"].apply(fmt_pct)
     df["年間配当"] = df["div_amount_num"].apply(fmt_yen)
     df["事業の勢い"] = df["growth_num"].apply(fmt_pct)
     df["時価総額"] = df["mc_num"].apply(fmt_market_cap)
-    df["大口介入期待度"] = df["prob_num"].apply(fmt_big_prob)
-    df["根拠【グレアム数】"] = df["note"].fillna("")
+    df["大口介入"] = df["prob_num"].apply(fmt_big_prob) # 短縮
+    df["根拠"] = df["note"].fillna("—") # 短縮
 
     df.index = df.index + 1
     
-    # ★「詳細」チェックボックス列
+    # 詳細チェックボックス列（エラーなら無効化したいがデータ型統一のためFalseのまま）
     df["詳細"] = False
     
-    # ★並び順：需給の壁の右に「詳細」
+    # ★項目名を短くしてPCでの横スクロールを防止
     show_cols = [
-        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁",
-        "詳細", # ★ここ！
-        "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
+        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁",
+        "詳細", 
+        "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠"
     ]
     
     return df[show_cols]
@@ -365,13 +376,14 @@ if st.session_state["analysis_bundle"]:
         column_config={
             "詳細": st.column_config.CheckboxColumn(
                 "詳細",
-                help="チェックするとチャートを表示します",
+                help="チャートを表示",
                 default=False,
             ),
             "証券コード": st.column_config.TextColumn(disabled=True),
             "銘柄名": st.column_config.TextColumn(disabled=True),
         },
-        disabled=["証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"]
+        # 編集不可
+        disabled=["証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠"]
     )
     
     selected_rows = edited_df[edited_df["詳細"] == True]
@@ -380,16 +392,20 @@ if st.session_state["analysis_bundle"]:
         selected_code = selected_rows.iloc[0]["証券コード"]
         ticker_data = bundle.get(selected_code)
         
-        st.divider()
-        st.markdown(f"### 📉 詳細分析チャート：{ticker_data.get('name')}")
-        draw_wall_chart(ticker_data)
-        st.divider()
+        # エラー銘柄はチャートを表示させない
+        if ticker_data and ticker_data.get("name") != "存在しない銘柄" and ticker_data.get("hist_data") is not None:
+            st.divider()
+            st.markdown(f"### 📉 詳細分析チャート：{ticker_data.get('name')}")
+            draw_wall_chart(ticker_data)
+            st.divider()
 
-    # ★評価対象外・お天気マークの説明
+    # ★復活：赤字でも来期予想があれば計算する旨の記載
     st.info("""
     **※ 評価が表示されない（—）銘柄について**
     赤字決算や財務データが不足している銘柄は、投資リスクの観点から自動的に **「評価対象外」** としています。
-    具体的な理由は「根拠」の欄をご確認ください。
+
+    ただし、**「今は赤字だが来期は黒字予想」の場合は、自動的に『予想EPS』を使って理論株価を算出**しています。
+    その場合、根拠欄に **「※予想EPS参照」** と記載されます。
 
     **※ 業績（お天気マーク）の判定基準**
     - ☀ **（優良）**：ROE 8%以上 かつ ROA 5%以上（効率性・健全性ともに最強）
