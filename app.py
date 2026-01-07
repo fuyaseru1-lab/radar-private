@@ -1,7 +1,7 @@
 import re
 import math
 import unicodedata
-import time  # ★必須：エラー解消
+import time
 from typing import Any, Dict, List, Optional
 import pandas as pd
 import streamlit as st
@@ -89,23 +89,23 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 🔧 管理者メニュー（サイドバーに常設）
+# 🔧 管理者メニュー（サイドバー常駐・展開済み）
 # -----------------------------
-# ログイン後、左側のサイドバーに常に「管理者メニュー」を表示します
 with st.sidebar:
-    with st.expander("🔧 管理者用メニュー"):
-        st.caption("関係者のみ使用可能です。")
-        # ここに入力してエンターを押すと...
-        admin_input = st.text_input("管理者コード", type="password", key="admin_pass")
-        
-        # コードが合っていればボタンが出現
-        if admin_input == ADMIN_CODE:
-            st.success("認証OK")
-            if st.button("🗑️ キャッシュ全削除", type="primary"):
-                st.cache_data.clear()
-                st.success("削除完了！再読み込みします...")
-                time.sleep(1)
-                st.rerun()
+    st.header("🔧 管理者メニュー")
+    st.caption("キャッシュ削除などの管理操作")
+    
+    # 折りたたみ(expander)を廃止し、直接表示
+    admin_input = st.text_input("管理者コード", type="password", key="admin_pass_sidebar")
+    
+    # コードが合っていればボタンが出現
+    if admin_input == ADMIN_CODE:
+        st.success("認証OK：管理者権限")
+        if st.button("🗑️ キャッシュ全削除", type="primary"):
+            st.cache_data.clear()
+            st.success("削除完了！再読み込みします...")
+            time.sleep(1)
+            st.rerun()
 
 # ==========================================
 # ここから下がいつものアプリ本体
@@ -350,8 +350,7 @@ if run_btn:
         st.stop()
 
     # 待機時間を考慮したメッセージ
-    eta = len(codes) * 4 # リトライ分を考慮して少し長めに
-    with st.spinner(f"🚀 爆速で分析中...（1銘柄につき数秒お待ちください。アクセス集中時はリトライします）"):
+    with st.spinner(f"🚀 爆速で分析中...（Yahoo対策のため1銘柄につき数秒お待ちください。アクセス集中時はリトライします）"):
         try:
             bundle = fv.calc_fuyaseru_bundle(codes)
         except Exception as e:
