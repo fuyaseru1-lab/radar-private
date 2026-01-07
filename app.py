@@ -194,7 +194,8 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["評価"] = df["stars"]
     
     df["今買いか？"] = df["signal_icon"].fillna("—")
-    df["需給の壁"] = df["volume_wall"].fillna("—")
+    # ★ここを変更しました！
+    df["需給の壁（価格帯別出来高）"] = df["volume_wall"].fillna("—")
 
     df["配当利回り"] = df["div_num"].apply(fmt_pct)
     df["年間配当"] = df["div_amount_num"].apply(fmt_yen)
@@ -206,8 +207,9 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df.index = df.index + 1
     
+    # ★表示順を変更：「需給の壁（価格帯別出来高）」を使用
     show_cols = [
-        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁",
+        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁（価格帯別出来高）",
         "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
     ]
     return df[show_cols]
@@ -218,7 +220,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 st.caption("証券コードを入力すると、理論株価・配当・成長性・大口介入期待度を一括表示します。")
 
-# ★ここが説明文の修正箇所です！
 with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
     st.markdown("""
 ### 1. 割安度評価（★）
