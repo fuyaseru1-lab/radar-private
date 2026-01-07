@@ -27,7 +27,7 @@ except Exception:
 # -----------------------------
 st.set_page_config(page_title="フヤセルブレイン - AI理論株価分析ツール", page_icon="📈", layout="wide")
 
-# ★スマホ対応：文字色強制ブラック（最強版）＆チャート調整
+# ★スマホ対応CSS：文字サイズ調整＆ダークモード対策
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -63,26 +63,31 @@ hide_streamlit_style = """
                 color: #31333F;
             }
             
-            /* ★スマホ対策：あらゆる要素の文字色を強制的に濃い色（#31333F）にする */
-            .stApp, .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown span, .stMarkdown div {
+            /* 全体の文字色を濃い色に強制（ダークモード対策） */
+            .stApp, .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown span, .stMarkdown div, .stDataFrame {
                 color: #31333F !important;
                 background-color: #ffffff !important;
             }
-            
-            /* 箇条書きの点（・）の色も強制変更 */
-            ul {
-                color: #31333F !important;
-            }
-            
-            /* 背景も白系に固定 */
             div[data-testid="stAppViewContainer"] {
                 background-color: #ffffff !important;
             }
-            
-            /* 入力ボックス内の文字色も見やすく */
             .stTextInput input, .stTextArea textarea {
                 color: #31333F !important;
                 background-color: #f0f2f6 !important;
+            }
+            
+            /* ★スマホ（幅640px以下）の時だけの特別ルール */
+            @media (max-width: 640px) {
+                /* 文字を少し大きくして読みやすく */
+                .stMarkdown p, .stDataFrame div {
+                    font-size: 16px !important; 
+                }
+                /* 余白を調整 */
+                .block-container {
+                    padding-top: 2rem !important;
+                    padding-left: 1rem !important;
+                    padding-right: 1rem !important;
+                }
             }
             </style>
             """
@@ -123,11 +128,9 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     current_price = ticker_data.get("price", 0)
     fair_value = ticker_data.get("fair_value")
 
-    # データ整理
     hist = hist.reset_index()
-    hist['Date'] = pd.to_datetime(hist.iloc[:, 0]).dt.tz_localize(None) # タイムゾーン削除
+    hist['Date'] = pd.to_datetime(hist.iloc[:, 0]).dt.tz_localize(None)
 
-    # 需給の壁データ作成
     bins = 50
     p_min = min(hist['Close'].min(), current_price * 0.9)
     p_max = max(hist['Close'].max(), current_price * 1.1)
@@ -135,15 +138,13 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist['bin'] = pd.cut(hist['Close'], bins=bin_edges)
     vol_profile = hist.groupby('bin', observed=False)['Volume'].sum()
     
-    # 壁の色分け
     bar_colors = []
     for interval in vol_profile.index:
         if interval.mid > current_price:
-            bar_colors.append('rgba(255, 82, 82, 0.6)')  # 赤（上値）
+            bar_colors.append('rgba(255, 82, 82, 0.6)')
         else:
-            bar_colors.append('rgba(33, 150, 243, 0.6)') # 青（下値）
+            bar_colors.append('rgba(33, 150, 243, 0.6)')
 
-    # サブプロット作成
     fig = make_subplots(
         rows=1, cols=2, 
         shared_yaxes=True, 
@@ -151,58 +152,33 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         horizontal_spacing=0.02
     )
 
-    # 1. ローソク足
     fig.add_trace(go.Candlestick(
-        x=hist['Date'],
-        open=hist['Open'], high=hist['High'],
-        low=hist['Low'], close=hist['Close'],
-        name='株価'
+        x=hist['Date'], open=hist['Open'], high=hist['High'],
+        low=hist['Low'], close=hist['Close'], name='株価'
     ), row=1, col=1)
 
-    # 2. 壁（横棒グラフ）
     fig.add_trace(go.Bar(
-        x=vol_profile.values,
-        y=[i.mid for i in vol_profile.index],
-        orientation='h',
-        marker_color=bar_colors,
-        name='出来高'
+        x=vol_profile.values, y=[i.mid for i in vol_profile.index],
+        orientation='h', marker_color=bar_colors, name='出来高'
     ), row=1, col=2)
 
-    # 3. 理論株価ライン
     if fair_value:
         fig.add_hline(y=fair_value, line_dash="dash", line_color="white", annotation_text="理論株価", annotation_position="top left")
 
-    # レイアウト調整（★ドラッグ禁止設定済み）
     fig.update_layout(
-        title=f"📊 {name} ({code})",
-        height=450,
-        showlegend=False,
-        xaxis_rangeslider_visible=False,
-        margin=dict(l=10, r=10, t=40, b=10),
-        dragmode=False,  # ★ドラッグ操作（拡大縮小）を無効化
+        title=f"📊 {name} ({code})", height=450, showlegend=False,
+        xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=40, b=10),
+        dragmode=False,
     )
-    
-    # x軸・y軸の固定設定
     fig.update_xaxes(fixedrange=True) 
     fig.update_yaxes(fixedrange=True)
 
-    # ★ツールバー非表示・スクロールズーム禁止
-    st.plotly_chart(
-        fig, 
-        use_container_width=True,
-        config={
-            'displayModeBar': False, 
-            'staticPlot': False,      
-            'scrollZoom': False       
-        }
-    )
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False})
 
 
 # ==========================================
 # メイン処理
 # ==========================================
-
-# 関数群
 def sanitize_codes(raw_codes: List[str]) -> List[str]:
     cleaned: List[str] = []
     for x in raw_codes:
@@ -278,7 +254,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     for col in cols:
         if col not in df.columns: df[col] = None
 
-    # 数値化とフォーマット
     def _as_float(x):
         try: return float(x)
         except: return None
@@ -306,7 +281,7 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["上昇余地（％）"] = df["upside_pct_num"].apply(fmt_pct)
     df["評価"] = df["stars"]
     df["今買いか？"] = df["signal_icon"].fillna("—")
-    df["需給の壁（価格帯別出来高）"] = df["volume_wall"].fillna("—")
+    df["需給の壁"] = df["volume_wall"].fillna("—")
     df["配当利回り"] = df["div_num"].apply(fmt_pct)
     df["年間配当"] = df["div_amount_num"].apply(fmt_yen)
     df["事業の勢い"] = df["growth_num"].apply(fmt_pct)
@@ -316,24 +291,29 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df.index = df.index + 1
     
-    # 詳細チェックボックス
-    df["詳細"] = False
-    
-    show_cols = [
-        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁（価格帯別出来高）",
-        "詳細", 
+    # 選択用に列を整理（全列バージョン）
+    full_cols = [
+        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁",
         "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
     ]
-    return df[show_cols]
+    
+    # スマホ用シンプル列（横スクロールを減らす）
+    mobile_cols = [
+        "証券コード", "銘柄名", "現在値", "需給の壁", "今買いか？", "評価"
+    ]
+    
+    return df, full_cols, mobile_cols
 
 
 # -----------------------------
 # メイン画面構築
 # -----------------------------
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
-st.caption("証券コードを入力すると、理論株価・配当・成長性・大口介入期待度を一括表示します。")
 
-with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
+# ★スマホ用切り替えスイッチ
+is_mobile = st.toggle("📱 スマホ用シンプル表示", value=True)
+
+with st.expander("★ 評価基準とアイコンの見方", expanded=False):
     st.markdown("""
 ### 1. 割安度評価（★）
 **理論株価**（本来の実力）と **現在値** を比較した「お得度」です。
@@ -356,7 +336,6 @@ with st.expander("★ 評価基準とアイコンの見方（クリックで詳�
 ### 3. 需給の壁（突破力）
 **過去6ヶ月間で最も取引が活発だった価格帯（しこり玉・岩盤）** です。
 この壁は**「跳ね返される場所（反転）」**であると同時に、**「抜けた後の加速装置（突破）」**でもあります。
-
 - **🚧 上壁（戻り売り圧力）**
     - **【基本】** ここまでは上がっても叩き落とされやすい（抵抗線）。
     - **【突破】** しかしここを食い破れば、売り手不在の**「青天井」**モード突入！
@@ -369,9 +348,9 @@ with st.expander("★ 評価基準とアイコンの見方（クリックで詳�
 
 st.subheader("🔢 銘柄入力")
 raw_text = st.text_area(
-    "分析したい証券コードを入力してください（複数可・改行区切り推奨）",
-    height=150,
-    placeholder="例：\n7203\n9984\n285A\n（Excelなどからコピペも可能です）"
+    "分析したい証券コードを入力してください",
+    height=100,
+    placeholder="例：\n7203\n9984\n285A"
 )
 run_btn = st.button("🚀 AIで分析開始！", type="primary")
 
@@ -389,7 +368,7 @@ if run_btn:
         st.error("証券コードが入力されていません。")
         st.stop()
 
-    with st.spinner(f"🚀 高速分析中...（1銘柄につき数3秒ほどお待ちください。アクセス集中時はリトライ実行）"):
+    with st.spinner(f"🚀 高速分析中..."):
         try:
             bundle = fv.calc_fuyaseru_bundle(codes)
             st.session_state["analysis_bundle"] = bundle
@@ -398,40 +377,38 @@ if run_btn:
             st.error(f"エラー: {e}")
             st.stop()
 
-# 分析結果があれば表示
 if st.session_state["analysis_bundle"]:
     bundle = st.session_state["analysis_bundle"]
     codes = st.session_state["analysis_codes"]
     
-    df = bundle_to_df(bundle, codes)
+    df, full_cols, mobile_cols = bundle_to_df(bundle, codes)
     
-    st.subheader("📊 フヤセルブレイン分析結果")
-    st.info("💡 **「詳細」** 列のチェックボックスをONにすると、下に詳細チャートが表示されます！")
+    # ★表示する列の切り替え
+    display_cols = mobile_cols if is_mobile else full_cols
     
-    styled_df = df.style.map(highlight_errors, subset=["銘柄名"])
+    st.subheader("📊 分析結果")
+    st.info("👇 **表の行（どこでもOK）をタップ** すると、詳細チャートが表示されます！")
     
-    # st.data_editor
-    edited_df = st.data_editor(
+    styled_df = df[display_cols].style.map(highlight_errors, subset=["銘柄名"])
+    
+    # ★ここが進化！行選択モード（Checkbox廃止）
+    event = st.dataframe(
         styled_df,
         use_container_width=True,
         hide_index=True,
-        column_config={
-            "詳細": st.column_config.CheckboxColumn(
-                "詳細",
-                help="チェックするとチャートを表示します",
-                default=False,
-            ),
-            "証券コード": st.column_config.TextColumn(disabled=True),
-            "銘柄名": st.column_config.TextColumn(disabled=True),
-        },
-        disabled=["証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁（価格帯別出来高）", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"]
+        on_select="rerun",      # 行をクリックしたら再実行
+        selection_mode="single-row" # 1行だけ選択
     )
     
-    # チェックがついている行を探す
-    selected_rows = edited_df[edited_df["詳細"] == True]
-    
-    if not selected_rows.empty:
-        selected_code = selected_rows.iloc[0]["証券コード"]
+    # 選択された行があればチャートを表示
+    if len(event.selection.rows) > 0:
+        idx = event.selection.rows[0]
+        # 表示されている表の中でのインデックスなので、元のDataFrameからコードを特定
+        # ただしindexは0始まりで、dfは1始まりに加工してないが...
+        # ここでは単純に表示dfのiloc[idx]からコードを取得
+        row_data = df[display_cols].iloc[idx]
+        selected_code = row_data["証券コード"]
+        
         ticker_data = bundle.get(selected_code)
         
         st.divider()
@@ -440,10 +417,8 @@ if st.session_state["analysis_bundle"]:
         st.divider()
 
     st.info(
-        "**※ 評価が表示されない（—）銘柄について**\n\n"
-        "赤字決算や財務データが不足している銘柄は、投資リスクの観点から自動的に **「評価対象外」** としています。\n\n"
-        "ただし、**「今は赤字だが来期は黒字予想」の場合は、自動的に『予想EPS』を使って理論株価を算出**しています。\n"
-        "その場合、根拠欄に **「※予想EPS参照」** と記載されます。",
+        "**※ 評価対象外（—）について**\n"
+        "赤字やデータ不足の場合は算出できませんが、来期黒字予想なら「予想EPS」で計算しています。",
         icon="ℹ️"
     )
 
@@ -452,10 +427,9 @@ if st.session_state["analysis_bundle"]:
 # -----------------------------
 st.divider()
 with st.expander("🔧 管理者専用メニュー"):
-    st.caption("関係者のみ操作可能です。")
     admin_input = st.text_input("管理者コード", type="password", key="admin_pass_bottom")
     if admin_input == ADMIN_CODE:
-        st.success("認証OK：管理者権限")
+        st.success("認証OK")
         if st.button("🗑️ キャッシュ全削除", type="primary"):
             st.cache_data.clear()
             st.success("削除完了！再読み込みします...")
