@@ -24,6 +24,7 @@ def _get_weather_icon(roe: Optional[float], roa: Optional[float]) -> str:
     return "☁（普通）"
 
 def _calc_rsi(series, period=14):
+    if len(series) < period + 1: return pd.Series([50]*len(series)) # データ不足時は50
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
@@ -31,6 +32,7 @@ def _calc_rsi(series, period=14):
     return 100 - (100 / (1 + rs))
 
 def _calc_bollinger_bands(series, window=20, num_std=2):
+    if len(series) < window: return series, series # データ不足時は現在値
     rolling_mean = series.rolling(window=window).mean()
     rolling_std = series.rolling(window=window).std()
     upper_band = rolling_mean + (rolling_std * num_std)
@@ -38,8 +40,9 @@ def _calc_bollinger_bands(series, window=20, num_std=2):
     return upper_band, lower_band
 
 def _calc_volume_profile_wall(hist, current_price, bins=40):
-    """需給の壁（価格帯別出来高）を計算"""
     try:
+        if hist.empty or len(hist) < 5: return "—"
+        hist = hist.copy() # 警告回避
         hist['price_bin'] = pd.cut(hist['Close'], bins=bins)
         vol_profile = hist.groupby('price_bin', observed=False)['Volume'].sum()
         max_vol_bin = vol_profile.idxmax()
@@ -72,36 +75,75 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    # 連続アクセスを防ぐため、少し長めに待機
-    time.sleep(random.uniform(1.0, 2.0))
+    # ベースの待機時間
+    time.sleep(random.uniform(1.5, 3.0))
 
     ticker = f"{code4}.T"
+    
+    # ★粘りのリトライロジック
+    # 6ヶ月データ取得に最大3回チャレンジ。ダメなら1ヶ月データに切り替えて再チャレンジ。
+    hist = None
+    info = {}
+    error_msg = "取得失敗"
+    
+    # ステップ1: 6ヶ月データを試す（テクニカル分析用）
+    for attempt in range(3):
+        try:
+            t = yf.Ticker(ticker)
+            temp_hist = t.history(period="6mo")
+            if not temp_hist.empty:
+                hist = temp_hist
+                # 成功したらinfoも取る
+                try: info = t.info
+                except: pass
+                break
+            else:
+                # 空っぽなら少し待って再試行
+                time.sleep(3)
+        except Exception as e:
+            time.sleep(3)
+            error_msg = str(e)
+
+    # ステップ2: まだダメなら、期間を「1mo（1ヶ月）」に短縮して試す
+    # （重いデータが拒否されている可能性があるため）
+    if hist is None or hist.empty:
+        try:
+            t = yf.Ticker(ticker)
+            temp_hist = t.history(period="1mo")
+            if not temp_hist.empty:
+                hist = temp_hist
+                error_msg = "データ不足(1moのみ)" # 記録として残す
+                try: info = t.info
+                except: pass
+        except: pass
+
+    # 最終判定：それでもダメなら「存在しない」か「エラー」
+    if hist is None or hist.empty:
+        # エラーメッセージを少し詳しくする
+        note_text = "アクセス不可" if "404" not in str(error_msg) else "存在しない銘柄"
+        if "429" in str(error_msg): note_text = "制限中(429)"
+
+        return {
+            "code": code4, "name": "取得エラー", "weather": "—", "price": None, 
+            "fair_value": None, "upside_pct": None, "note": note_text, 
+            "dividend": None, "dividend_amount": None, "growth": None, 
+            "market_cap": None, "big_prob": None,
+            "signal_icon": "—", "volume_wall": "—"
+        }
+    
+    # --- ここまで来ればデータはある ---
     try:
-        t = yf.Ticker(ticker)
-        # 6ヶ月分取得
-        hist = t.history(period="6mo")
-        
-        # データが取れない場合
-        if hist is None or hist.empty:
-            return {
-                "code": code4, "name": "存在しない銘柄", "weather": "—", "price": None, 
-                "fair_value": None, "upside_pct": None, "note": "—", 
-                "dividend": None, "dividend_amount": None, "growth": None, 
-                "market_cap": None, "big_prob": None,
-                "signal_icon": "—", "volume_wall": "—"
-            }
-        
-        info = t.info
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
         current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
         
-        # 需給の壁
+        # 需給の壁（データ数に応じて計算）
         volume_wall = "—"
-        if len(hist) > 30 and price:
+        if len(hist) > 10 and price:
             volume_wall = _calc_volume_profile_wall(hist, price)
 
-        # テクニカル分析
+        # テクニカル分析（データ数に応じて計算）
         signal_icon = "—"
+        # 6ヶ月取れていれば75日線などが使える
         if len(hist) > 75:
             score = 0
             rsi_series = _calc_rsi(hist["Close"])
@@ -127,7 +169,10 @@ def _fetch_single_stock(code4: str) -> dict:
             elif score == 0: signal_icon = "→△"
             elif score >= -2: signal_icon = "↘▲"
             else: signal_icon = "↓✖"
+        elif len(hist) > 0:
+            signal_icon = "データ不足"
         
+        # ファンダメンタルズ（infoから取得）
         eps_trail = _safe_float(info.get("trailingEps"), None) 
         eps_fwd   = _safe_float(info.get("forwardEps"), None)
         bps       = _safe_float(info.get("bookValue"), None)
@@ -209,8 +254,8 @@ def _fetch_single_stock(code4: str) -> dict:
         }
     except Exception as e:
         return {
-            "code": code4, "name": "存在しない銘柄", "weather": "—", "price": None,
-            "fair_value": None, "upside_pct": None, "note": "—",
+            "code": code4, "name": "処理エラー", "weather": "—", "price": None,
+            "fair_value": None, "upside_pct": None, "note": str(e),
             "dividend": None, "dividend_amount": None, "growth": None,
             "market_cap": None, "big_prob": None, "signal_icon": "—", "volume_wall": "—"
         }
@@ -218,8 +263,7 @@ def _fetch_single_stock(code4: str) -> dict:
 @st.cache_data(ttl=43200, show_spinner=False)
 def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     out = {}
-    # ★修正点：並列処理（ThreadPoolExecutor）を廃止し、シンプルなループに変更
-    # これにより「診断ツール」と同じ確実な挙動になります。
+    # 確実性重視：ループ処理
     for code in codes:
         try:
             res = _fetch_single_stock(code)
