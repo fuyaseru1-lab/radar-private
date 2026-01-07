@@ -25,7 +25,7 @@ except Exception:
 # ==========================================
 st.set_page_config(page_title="フヤセルブレイン - AI理論株価分析ツール", page_icon="📈", layout="wide")
 
-# ★スマホ対応CSS：文字サイズ調整＆ダークモード対策
+# ★CSS：文字色対策（黒固定）とチャート調整のみ残す
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -73,18 +73,6 @@ hide_streamlit_style = """
                 color: #31333F !important;
                 background-color: #f0f2f6 !important;
             }
-            
-            /* スマホ用調整 */
-            @media (max-width: 640px) {
-                .stMarkdown p, .stDataFrame div {
-                    font-size: 16px !important; 
-                }
-                .block-container {
-                    padding-top: 2rem !important;
-                    padding-left: 1rem !important;
-                    padding-right: 1rem !important;
-                }
-            }
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -111,7 +99,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 📈 チャート描画関数
+# 📈 チャート描画関数（固定設定あり）
 # -----------------------------
 def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist = ticker_data.get("hist_data")
@@ -148,6 +136,7 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     if fair_value:
         fig.add_hline(y=fair_value, line_dash="dash", line_color="white", annotation_text="理論株価", annotation_position="top left")
 
+    # チャート固定設定
     fig.update_layout(title=f"📊 {name} ({code})", height=450, showlegend=False, xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=40, b=10), dragmode=False)
     fig.update_xaxes(fixedrange=True) 
     fig.update_yaxes(fixedrange=True)
@@ -269,19 +258,24 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df.index = df.index + 1
     
-    full_cols = ["証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"]
-    mobile_cols = ["証券コード", "銘柄名", "現在値", "需給の壁", "今買いか？", "評価"]
+    # ★「詳細」チェックボックス列を追加
+    df["詳細"] = False
     
-    return df, full_cols, mobile_cols
+    # ★以前の並び順に戻す（需給の壁の右に詳細）
+    show_cols = [
+        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁",
+        "詳細", # ★ここ！
+        "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
+    ]
+    
+    return df[show_cols]
 
 # -----------------------------
 # メイン画面構築
 # -----------------------------
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 
-is_mobile = st.toggle("📱 スマホ用シンプル表示", value=True)
-
-# ★【復活】評価基準とアイコンの見方
+# ★評価基準とアイコンの見方
 with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
     st.markdown("""
 ### 1. 割安度評価（★）
@@ -349,26 +343,37 @@ if st.session_state["analysis_bundle"]:
     bundle = st.session_state["analysis_bundle"]
     codes = st.session_state["analysis_codes"]
     
-    df, full_cols, mobile_cols = bundle_to_df(bundle, codes)
-    display_cols = mobile_cols if is_mobile else full_cols
+    df = bundle_to_df(bundle, codes)
     
     st.subheader("📊 分析結果")
-    st.info("👇 **表の行（どこでもOK）をタップ** すると、詳細チャートが表示されます！")
+    st.info("💡 **「詳細」** 列のチェックボックスをONにすると、下に詳細チャートが表示されます！")
     
-    styled_df = df[display_cols].style.map(highlight_errors, subset=["銘柄名"])
+    styled_df = df.style.map(highlight_errors, subset=["銘柄名"])
     
-    event = st.dataframe(
+    # ★data_editorに戻してチェックボックスを確実に表示
+    edited_df = st.data_editor(
         styled_df,
         use_container_width=True,
         hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row"
+        column_config={
+            "詳細": st.column_config.CheckboxColumn(
+                "詳細",
+                help="チェックするとチャートを表示します",
+                default=False,
+            ),
+            # 他の列を編集不可にする
+            "証券コード": st.column_config.TextColumn(disabled=True),
+            "銘柄名": st.column_config.TextColumn(disabled=True),
+        },
+        disabled=["証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"]
     )
     
-    if len(event.selection.rows) > 0:
-        idx = event.selection.rows[0]
-        row_data = df[display_cols].iloc[idx]
-        selected_code = row_data["証券コード"]
+    # チェックがついている行を探す
+    selected_rows = edited_df[edited_df["詳細"] == True]
+    
+    if not selected_rows.empty:
+        # 一番上の選択行を取得
+        selected_code = selected_rows.iloc[0]["証券コード"]
         ticker_data = bundle.get(selected_code)
         
         st.divider()
@@ -376,7 +381,7 @@ if st.session_state["analysis_bundle"]:
         draw_wall_chart(ticker_data)
         st.divider()
 
-    # ★【復活】評価対象外の説明・お天気マーク
+    # ★評価対象外の説明・お天気マーク
     st.info("""
     **※ 評価が表示されない（—）銘柄について**
     赤字決算や財務データが不足している銘柄は、投資リスクの観点から自動的に **「評価対象外」** としています。
@@ -389,7 +394,7 @@ if st.session_state["analysis_bundle"]:
     """)
 
 # -----------------------------
-# ★【復活】豆知識コーナー（エクスパンダー）
+# ★豆知識コーナー（エクスパンダー）
 # -----------------------------
 st.divider()
 st.subheader("📚 投資の豆知識・用語解説")
