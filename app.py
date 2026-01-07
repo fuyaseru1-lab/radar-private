@@ -7,16 +7,14 @@ import streamlit as st
 import fair_value_calc_y4 as fv  # 計算エンジン
 
 # ==========================================
-# 🔑 パスワード設定（ここを好きな文字に変えてください）
+# 🔑 パスワード設定
 # ==========================================
-USER_PASSWORD = "7777"  # 例：ここを変える
+USER_PASSWORD = "AK100005"  # 好きなパスワードに変更
 # ==========================================
 
-# -----------------------------
-# UI設定
-# -----------------------------
 st.set_page_config(page_title="フヤセルブレイン - AI理論株価分析ツール", page_icon="📈", layout="wide")
 
+# ★メニューは隠したまま、機能でカバーします
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -24,7 +22,6 @@ hide_streamlit_style = """
             header {visibility: hidden;}
             .stDeployButton {display:none;}
             
-            /* カード風デザイン */
             div.stButton > button:first-child {
                 background-color: #ff4b4b;
                 color: white;
@@ -38,7 +35,6 @@ hide_streamlit_style = """
                 background-color: #e63e3e;
             }
             
-            /* 詳細タグ（details）のデザイン調整 */
             details {
                 background-color: #f9f9f9;
                 padding: 10px;
@@ -52,54 +48,45 @@ hide_streamlit_style = """
                 font-weight: bold;
                 color: #31333F;
             }
+            
+            /* 管理者ボタン用のスタイル（少し控えめに） */
+            .admin-btn button {
+                background-color: #666 !important;
+                font-size: 0.8rem !important;
+            }
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # -----------------------------
-# 🔐 認証ロジック（門番）
+# 🔐 認証ロジック
 # -----------------------------
 def check_password():
-    """パスワードが合っているか確認する関数"""
-    
-    # セッション（記憶）にログイン情報がなければ初期化
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
 
-    # まだログインしていない場合
     if not st.session_state["logged_in"]:
         st.markdown("## 🔒 ACCESS RESTRICTED")
         st.caption("関係者専用ツールのため、パスワード制限をかけています。")
-        
-        # 入力フォーム
         password_input = st.text_input("パスワードを入力してください", type="password")
         
         if st.button("ログイン"):
-            # 入力された文字を「正規化」する
-            # NFKC = 全角を半角に直す
-            # upper = 小文字を大文字に直す
             input_norm = unicodedata.normalize('NFKC', password_input).upper().strip()
             secret_norm = unicodedata.normalize('NFKC', USER_PASSWORD).upper().strip()
             
             if input_norm == secret_norm:
                 st.session_state["logged_in"] = True
-                st.rerun()  # 画面を再読み込みして中身を表示
+                st.rerun()
             else:
                 st.error("パスワードが違います 🙅")
-        
-        # ログインできていないなら、ここでプログラムを止める（中身を見せない）
         st.stop()
 
-# ★ここで認証チェック実行！
 check_password()
 
 # ==========================================
-# ここから下がいつものアプリ本体
+# メインアプリ本体
 # ==========================================
 
-# -----------------------------
-# 関数群
-# -----------------------------
 def sanitize_codes(raw_codes: List[str]) -> List[str]:
     cleaned: List[str] = []
     for x in raw_codes:
@@ -192,9 +179,6 @@ def highlight_errors(val):
         return 'color: #ff4b4b; font-weight: bold;'
     return ''
 
-# -----------------------------
-# データ整形
-# -----------------------------
 def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     if isinstance(bundle, dict):
@@ -217,14 +201,11 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["fair_value_num"] = df["fair_value"].apply(_as_float)
     df["upside_pct_num"] = df["upside_pct"].apply(_as_float)
     df["upside_yen_num"] = df["fair_value_num"] - df["price_num"]
-    
     df["div_num"] = df["dividend"].apply(_as_float)
     df["div_amount_num"] = df["dividend_amount"].apply(_as_float)
-    
     df["growth_num"] = df["growth"].apply(_as_float)
     df["mc_num"] = df["market_cap"].apply(_as_float)
     df["prob_num"] = df["big_prob"].apply(_as_float)
-    
     df["rating"] = df["upside_pct_num"].apply(calc_rating_from_upside)
     df["stars"] = df["rating"].apply(to_stars)
     
@@ -233,19 +214,16 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["証券コード"] = df["ticker"]
     df["銘柄名"] = df["name"].fillna("—")
     df["業績"] = df["weather"].fillna("—")
-    
     df["現在値"] = df["price"].apply(fmt_yen)
     df["理論株価"] = df["fair_value"].apply(fmt_yen)
     df["上昇余地（円）"] = df["upside_yen_num"].apply(fmt_yen_diff)
     df["上昇余地（％）"] = df["upside_pct_num"].apply(fmt_pct)
     df["評価"] = df["stars"]
-    
     df["今買いか？"] = df["signal_icon"].fillna("—")
     df["需給の壁（価格帯別出来高）"] = df["volume_wall"].fillna("—")
 
     df["配当利回り"] = df["div_num"].apply(fmt_pct)
     df["年間配当"] = df["div_amount_num"].apply(fmt_yen)
-    
     df["事業の勢い"] = df["growth_num"].apply(fmt_pct)
     df["時価総額"] = df["mc_num"].apply(fmt_market_cap)
     df["大口介入期待度"] = df["prob_num"].apply(fmt_big_prob)
@@ -259,9 +237,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     ]
     return df[show_cols]
 
-# -----------------------------
-# メイン画面
-# -----------------------------
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 st.caption("証券コードを入力すると、理論株価・配当・成長性・大口介入期待度を一括表示します。")
 
@@ -269,7 +244,6 @@ with st.expander("★ 評価基準とアイコンの見方（クリックで詳�
     st.markdown("""
 ### 1. 割安度評価（★）
 **理論株価**（本来の実力）と **現在値** を比較した「お得度」です。
-
 - :red[★★★★★：**お宝**（上昇余地 **+50%** 以上）]
 - ★★★★☆：**激アツ**（上昇余地 **+30%** 〜 +50%）
 - ★★★☆☆：**有望**（上昇余地 **+15%** 〜 +30%）
@@ -277,19 +251,15 @@ with st.expander("★ 評価基準とアイコンの見方（クリックで詳�
 - ★☆☆☆☆：**トントン**（上昇余地 **0%** 〜 +5%）
 - ☆☆☆☆☆：**割高**（上昇余地 **0% 未満**）
 
-<details>
-<summary>🤔 「割高」判定ばかり出る…という方へ（クリックで読む）</summary>
-<br>
-<span style="color: #ff4b4b; font-weight: bold;">※ 割高だから悪いというわけではありません。</span><br>
-むしろ優秀な企業だから株価が理論値をはるかに上回っている可能性もあります。<br>
-もしお持ちの銘柄で割高判定を受けた場合は、<strong>売り場の模索をするなどの指標</strong>としてお考えくださいませ。
+<details><summary>🤔 「割高」判定ばかり出る…という方へ</summary>
+<br><span style="color: #ff4b4b; font-weight: bold;">※ 割高だから悪いというわけではありません。</span><br>
+むしろ優秀な企業だから株価が理論値をはるかに上回っている可能性もあります。
 </details>
 
 ---
 
 ### 2. 売買シグナル（矢印）
-**テクニカル指標（RSI・移動平均線・ボリンジャーバンド）** を複合分析した「売買タイミング」です。
-
+**テクニカル指標** を複合分析した「売買タイミング」です。
 | 表示 | 意味 | 判定ロジック |
 | :--- | :--- | :--- |
 | **↑◎** | **激熱** | **「底値圏」＋「売られすぎ」＋「上昇トレンド」** 等の好条件が3つ以上重なった最強の買い場！ |
@@ -301,31 +271,15 @@ with st.expander("★ 評価基準とアイコンの見方（クリックで詳�
 ---
 
 ### 3. 需給の壁（突破力）
-**過去6ヶ月間で最も取引が活発だった価格帯（しこり玉・岩盤）** です。
-この壁は**「跳ね返される場所（反転）」**であると同時に、**「抜けた後の加速装置（突破）」**でもあります。
-
-- **🚧 上値壁（突破で激熱）**
-    - **【基本】** 戻り売り圧力に押され、**ここまでは上がっても叩き落とされやすい**（反落注意）。
-    - **【突破】** しかしここを食い破れば、売り手不在の**「青天井」**モード突入！ イケイケドンドンのチャンス。
-- **🛡️ 下値壁（割込で即逃げ）**
-    - **【基本】** 買い支えが入り、**ここで下げ止まって反発しやすい**（リバウンド期待）。
-    - **【割込】** しかしここを割り込むと、ガチホ勢が全員含み損になり**「パニック売り」**が連鎖する恐れあり。 即逃げ推奨。
-- **⚔️ 激戦中（分岐点）**
-    - まさに今、その壁の中で戦っている。どっちに抜けるか要注目。
-
-※ 理論株価がマイナスの場合や取得できない場合は **評価不能（—）** になります。
+**過去6ヶ月間で最も取引が活発だった価格帯** です。
+- **🚧 上値壁（突破で激熱）**：ここを食い破れば、売り手不在の**「青天井」**モード突入！
+- **🛡️ 下値壁（割込で即逃げ）**：ここを割り込むと、ガチホ勢が全員含み損になり**「パニック売り」**が連鎖する恐れあり。
+- **⚔️ 激戦中（分岐点）**：まさに今、その壁の中で戦っている。
 """, unsafe_allow_html=True) 
 
 st.subheader("🔢 銘柄入力")
-
-raw_text = st.text_area(
-    "分析したい証券コードを入力してください（複数可・改行区切り推奨）",
-    height=150,
-    placeholder="例：\n7203\n9984\n285A\n（Excelなどからコピペも可能です）"
-)
-
+raw_text = st.text_area("分析したい証券コードを入力してください（複数可・改行区切り推奨）", height=150, placeholder="例：\n7203\n9984\n285A")
 run_btn = st.button("🚀 AIで分析開始！", type="primary")
-
 st.divider()
 
 if run_btn:
@@ -334,95 +288,16 @@ if run_btn:
     if not codes:
         st.error("証券コードが入力されていません。")
         st.stop()
-
     with st.spinner("🚀 爆速で分析中..."):
         try:
             bundle = fv.calc_fuyaseru_bundle(codes)
         except Exception as e:
             st.error(f"エラー: {e}")
             st.stop()
-
     df = bundle_to_df(bundle, codes)
     st.subheader("📊 フヤセルブレイン分析結果")
     styled_df = df.style.map(highlight_errors, subset=["銘柄名"])
     st.dataframe(styled_df, use_container_width=True)
+    st.info("**※ 評価が表示されない銘柄について**\n赤字決算や財務データ不足の銘柄は自動的に「評価対象外」としています。ただし来期黒字予想がある場合は「※予想EPS参照」として計算しています。", icon="ℹ️")
 
-    info_text = (
-        "**※ 評価が表示されない（—）銘柄について**\n\n"
-        "赤字決算や財務データが不足している銘柄は、投資リスクの観点から自動的に **「評価対象外」** としています。\n\n"
-        "ただし、**「今は赤字だが来期は黒字予想」の場合は、自動的に『予想EPS』を使って理論株価を算出**しています。\n"
-        "その場合、根拠欄に **「※予想EPS参照」** と記載されます。\n\n"
-        "---\n\n"
-        "**※ 業績（お天気マーク）の判定基準**\n\n"
-        "☀ **（優良）**：ROE 8%以上 **かつ** ROA 5%以上（効率性・健全性ともに最強）\n\n"
-        "☁ **（普通）**：黒字だが、優良基準には満たない（一般的）\n\n"
-        "☔ **（赤字）**：ROE マイナス（赤字決算）"
-    )
-    st.info(info_text, icon="ℹ️")
-
-    with st.expander("📚 【豆知識】理論株価の計算根拠（グレアム数）とは？"):
-        st.markdown("""
-        ### 🧙‍♂️ "投資の神様"の師匠が考案した「割安株」の黄金式
-        
-        このツールで算出している理論株価は、**「グレアム数」** という計算式をベースにしています。
-        これは、あの世界最強の投資家 **ウォーレン・バフェットの師匠** であり、
-        「バリュー投資の父」と呼ばれる **ベンジャミン・グレアム** が考案した由緒ある指標です。
-        
-        #### 💡 何がすごいの？
-        多くの投資家は「利益（PER）」だけで株を見がちですが、グレアム数は
-        **「企業の利益（稼ぐ力）」** と **「純資産（持っている財産）」** の両面から、
-        その企業が本来持っている **「真の実力値（適正価格）」** を厳しく割り出します。
-        
-        > **今の株価 ＜ 理論株価（グレアム数）**
-        
-        となっていれば、それは **「実力よりも過小評価されている（バーゲンセール中）」** という強力なサインになります。
-        """)
-
-    with st.expander("🚀 【注目】なぜ「事業の勢い（売上成長率）」を見るの？"):
-        st.markdown("""
-        ### 📈 株価を押し上げる"真のエンジン"は売上にあり！
-        
-        「利益」は経費削減などで一時的に作れますが、**「売上」** の伸びだけは誤魔化せません。
-        売上が伸びているということは、**「その会社の商品が世の中でバカ売れしている」** という最強の証拠だからです。
-        
-        #### 📊 成長スピードの目安（より厳しめのプロ基準）
-        
-        - **🚀 +30% 以上**： **【超・急成長】**
-            - 驚異的な伸びです。将来のスター株候補の可能性がありますが、**期待先行で株価が乱高下するリスク**も高くなります。
-        - **🏃 +10% 〜 +30%**： **【成長軌道】**
-            - 安定してビジネスが拡大しています。安心して見ていられる優良企業のラインです。
-        - **🚶 0% 〜 +10%**： **【安定・成熟】**
-            - 急成長はしていませんが、堅実に稼いでいます。配当狙いの銘柄に多いです。
-        - **📉 マイナス**： **【衰退・縮小】**
-            - 去年より売れていません。ビジネスモデルの転換期か、斜陽産業の可能性があります。
-        
-        ### 💡 分析のポイント
-        **「赤字 × 急成長」の判断について**
-        
-        本来、赤字企業は投資対象外ですが、「事業の勢い」が **+30%** を超えている場合は、
-        **「将来のシェア獲得のために、あえて広告や研究に大金を投じている（＝今は赤字を掘っている）」** だけの可能性があります。
-        
-        :red[**ただし、黒字化できないまま倒産するリスクもあるため、上級者向けの「ハイリスク・ハイリターン枠」として慎重に見る必要があります。**]
-        """)
-
-    with st.expander("🌊 ファンドや機関（大口）の\"動き\"を検知する先乗り指標"):
-        st.markdown("""
-        時価総額や出来高の異常検知を組み合わせ、**「大口投資家が仕掛けやすい（買収や買い上げを狙いやすい）条件」** が揃っているかを%で表示します。
-        
-        ### 🔍 判定ロジック
-        **先乗り（先回り）理論、季節性、対角性、テーマ性、ファンド動向、アクティビスト検知、企業成長性など、ニッチ性、株大量保有条件、あらゆる大口介入シグナルを自動で検出する独自ロジックを各項目ごとにポイント制にしてパーセンテージを算出する次世代の指数**
-        
-        #### 🎯 ゴールデンゾーン（時価総額 500億〜3000億円）
-        機関投資家等が一番動きやすく、TOB（買収）のターゲットにもなりやすい「おいしい規模感」。
-        
-        #### 📉 PBR 1倍割れ（バーゲンセール）
-        「会社を解散して現金を配った方がマシ」という超割安状態。買収の標的にされやすい。
-        
-        #### ⚡ 出来高急増（ボリュームスパイク）
-        今日の出来高が、普段の平均より2倍以上ある場合、裏で何かが起きている（誰かが集めている）可能性大！
-        **独自の先乗り（先回り）法を完全数値化に成功！**
-        
-        :fire: **80%以上は「激アツ」** 何らかの材料（ニュース）が出る前触れか、水面下で大口が集めている可能性があります。
-        
-        **大口の買い上げこそ暴騰のチャンスです。この指標もしっかりご確認ください。**
-        """)
+st.divider()
