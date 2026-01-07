@@ -162,7 +162,7 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
         rows.append({"ticker": ",".join(codes), "note": "エラー", "value": bundle})
 
     df = pd.DataFrame(rows)
-    cols = ["name", "weather", "price", "fair_value", "upside_pct", "dividend", "dividend_amount", "growth", "market_cap", "big_prob", "note", "signal_icon"]
+    cols = ["name", "weather", "price", "fair_value", "upside_pct", "dividend", "dividend_amount", "growth", "market_cap", "big_prob", "note", "signal_icon", "volume_wall"]
     for col in cols:
         if col not in df.columns: df[col] = None
 
@@ -194,6 +194,7 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["評価"] = df["stars"]
     
     df["今買いか？"] = df["signal_icon"].fillna("—")
+    df["需給の壁"] = df["volume_wall"].fillna("—") # 名前変更
 
     df["配当利回り"] = df["div_num"].apply(fmt_pct)
     df["年間配当"] = df["div_amount_num"].apply(fmt_yen)
@@ -205,9 +206,10 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df.index = df.index + 1
     
+    # ★表示順を変更：「大口介入」の右に「需給の壁」
     show_cols = [
-        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？",
-        "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
+        "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", 
+        "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "需給の壁", "根拠【グレアム数】"
     ]
     return df[show_cols]
 
@@ -217,8 +219,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 st.caption("証券コードを入力すると、理論株価・配当・成長性・大口介入期待度を一括表示します。")
 
-# ★ここが修正ポイント！
-# HTMLタグを使って、Expanderの中にさらに「折りたたみQ&A」を埋め込みました。
 with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
     st.markdown("""
 ### 1. 割安度評価（★）
@@ -252,8 +252,21 @@ with st.expander("★ 評価基準とアイコンの見方（クリックで詳�
 | **↘▲** | **売り** | 天井圏や下落トレンド入り。利益確定や損切りの検討を。 |
 | **↓✖** | **危険** | **「買われすぎ」＋「暴落シグナル」** 等が点灯。手を出してはいけない。 |
 
+---
+
+### 3. 需給の壁（突破力）
+**過去6ヶ月間で最も取引が活発だった価格帯（しこり玉・岩盤）** です。
+この壁を「抜けるか」「割れるか」で、その後のトレンドが大きく変わります。
+
+- **🚧 上値壁（突破で激熱）**
+    - 今の株価より上に分厚い壁がある。**ここを突破すれば、戻り売り勢がいなくなり「青天井」モード突入！** イケイケドンドンのチャンス。
+- **🛡️ 下値壁（割込で即逃げ）**
+    - 今の株価より下に分厚い壁がある。**ここを割り込むと、ガチホ勢が全員含み損になり「パニック売り」が連鎖する恐れあり。** 即座に逃げるべし。
+- **⚔️ 激戦中（分岐点）**
+    - まさに今、その壁の中で戦っている。どっちに抜けるか要注目。
+
 ※ 理論株価がマイナスの場合や取得できない場合は **評価不能（—）** になります。
-""", unsafe_allow_html=True) # ★HTMLを許可する設定
+""", unsafe_allow_html=True) 
 
 st.subheader("🔢 銘柄入力")
 
