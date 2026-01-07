@@ -2,10 +2,10 @@ from __future__ import annotations
 from typing import Dict, List, Any, Optional
 import math
 import time
+import random
 import pandas as pd
 import numpy as np
 import streamlit as st
-import requests  # 追加: 通信制御用
 
 try:
     import yfinance as yf
@@ -13,17 +13,11 @@ except Exception:
     yf = None
 
 # ==========================================
-# ⚙️ 設定（Yahoo対策・最強版）
+# ⚙️ 設定（安全第一・シンプル構成）
 # ==========================================
-SLEEP_SECONDS = 3.0  # 待機時間
-
-# 偽装用の身分証（User-Agent）
-# これがないと詳細データ(info)へのアクセスが門前払いされます
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'ja,en-US;q=0.7,en;q=0.3',
-}
+# 固定3秒ではなく、人間らしく「ゆらぎ」を持たせる
+def get_sleep_time():
+    return random.uniform(2.0, 4.0)
 
 def _safe_float(x, default=None):
     try:
@@ -125,26 +119,19 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    time.sleep(SLEEP_SECONDS)
+    time.sleep(get_sleep_time())
     ticker = f"{code4}.T"
     
-    # ----------------------------------------
-    # Phase 0: セッション作成（ここが修正の肝！）
-    # ----------------------------------------
-    # ブラウザのふりをするためのセッションを作成
-    session = requests.Session()
-    session.headers.update(HEADERS)
+    # シンプルに呼び出す（変なヘッダーは付けない）
+    t = yf.Ticker(ticker)
 
     # ----------------------------------------
-    # Phase 1: 株価取得
+    # Phase 1: 株価・チャート（History） - ここが命
     # ----------------------------------------
     try:
-        # セッションを渡してTickerを作成（これで門前払いを回避）
-        t = yf.Ticker(ticker, session=session)
-        
         hist = t.history(period="6mo")
         if hist is None or hist.empty:
-            raise ValueError("No History Data")
+            raise ValueError("No History")
             
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
         current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
@@ -181,57 +168,65 @@ def _fetch_single_stock(code4: str) -> dict:
             else: signal_icon = "↓✖"
             
     except Exception:
+        # 株価すら取れない＝本当にエラー
         return {
-            "code": code4, "name": "存在しない銘柄", "weather": "—", "price": None, 
-            "fair_value": None, "upside_pct": None, "note": "—", 
+            "code": code4, "name": "エラー", "weather": "—", "price": None, 
+            "fair_value": None, "upside_pct": None, "note": "データ取得不可", 
             "dividend": None, "dividend_amount": None, "growth": None, 
             "market_cap": None, "big_prob": None,
             "signal_icon": "—", "volume_wall": "—"
         }
 
     # ----------------------------------------
-    # Phase 2: 財務データ取得（偽装セッション使用）
+    # Phase 2: 財務データ（Info vs FastInfo）
     # ----------------------------------------
     info = {}
     try:
-        # ここでアクセス拒否されにくくなるはず
         info = t.info
     except Exception:
+        info = {}
+
+    # ★新兵器: Fast Info (infoが死んでいても、これなら取れることが多い)
+    fast_info = {}
+    try:
+        fast_info = t.fast_info
+    except:
         pass
-    
-    # 万が一 info が空でも、fast_info（予備）から最低限の情報を試みる
-    if not info:
-        try:
-            # fast_infoはAPI経由なので通りやすい
-            fast = t.fast_info
-            # 時価総額と現在値の再確認
-            if not price:
-                price = _safe_float(fast.get("last_price", None))
-            if not current_volume:
-                current_volume = _safe_float(fast.get("last_volume", 0))
-            # infoに少しでも情報を詰める
-            info["marketCap"] = fast.get("market_cap", None)
-            # 銘柄名はfast_infoには入っていないことが多いが、通貨などは取れる
-        except:
-            pass
 
-    eps_trail = _safe_float(info.get("trailingEps"), None) 
-    eps_fwd   = _safe_float(info.get("forwardEps"), None)
-    bps       = _safe_float(info.get("bookValue"), None)
-    roe       = _safe_float(info.get("returnOnEquity"), None) 
-    roa       = _safe_float(info.get("returnOnAssets"), None) 
-    market_cap = _safe_float(info.get("marketCap"), None)
-    avg_volume = _safe_float(info.get("averageVolume"), None)
-    
-    q_type = info.get("quoteType", "").upper()
-    
-    # 名前が取れない場合の最終手段
-    long_name = info.get("longName", info.get("shortName", None))
-    if not long_name:
-        long_name = f"({code4})"
+    # データの統合（InfoになければFastInfoから取る）
+    def get_val(key_info, key_fast=None):
+        val = info.get(key_info)
+        if val is None and key_fast and fast_info:
+            try:
+                val = getattr(fast_info, key_fast, None)
+            except:
+                val = None
+        return _safe_float(val, None)
 
+    # 項目ごとの取得
+    eps_trail  = get_val("trailingEps")
+    eps_fwd    = get_val("forwardEps")
+    bps        = get_val("bookValue")
+    roe        = get_val("returnOnEquity")
+    roa        = get_val("returnOnAssets")
+    
+    # 時価総額はFastInfoの方が正確なことすらある
+    market_cap = get_val("marketCap", "market_cap")
+    
+    # 平均出来高
+    avg_volume = get_val("averageVolume")
+    
+    # 銘柄名などはInfo頼みだが、なければコードで代用
+    long_name = info.get("longName", info.get("shortName", f"({code4})"))
+    
+    # PBR計算
     pbr = (price / bps) if (price and bps and bps > 0) else None
-    volume_ratio = (current_volume / avg_volume) if (avg_volume and avg_volume > 0) else 0
+    
+    # 出来高倍率
+    volume_ratio = 0
+    if avg_volume and avg_volume > 0:
+        volume_ratio = current_volume / avg_volume
+    
     big_prob = _calc_big_player_score(market_cap, pbr, volume_ratio)
     
     div_rate = None
@@ -239,28 +234,32 @@ def _fetch_single_stock(code4: str) -> dict:
     if raw_div is not None and price and price > 0:
         div_rate = (raw_div / price) * 100.0
 
-    rev_growth = _safe_float(info.get("revenueGrowth"), None)
+    rev_growth = get_val("revenueGrowth")
     if rev_growth: rev_growth *= 100.0
 
     weather = _get_weather_icon(roe, roa)
 
+    # ----------------------------------------
+    # Phase 3: 理論株価計算
+    # ----------------------------------------
     fair_value = None
     note = "OK"
     calc_eps = None
     is_forecast = False
-    is_fund = False
-
+    
+    # ETFチェック
+    q_type = info.get("quoteType", "").upper()
     short_name = info.get("shortName", "").upper()
-    if q_type in ["ETF", "MUTUALFUND"]:
-        is_fund = True
-    elif "ETF" in short_name or "REIT" in short_name or "リート" in long_name:
-        is_fund = True
+    is_fund = False
+    if q_type in ["ETF", "MUTUALFUND"]: is_fund = True
+    elif "ETF" in short_name or "REIT" in short_name or "リート" in long_name: is_fund = True
 
     if is_fund:
-        note = "ETF/REIT等のため対象外"
+        note = "ETF/REIT対象外"
     elif not price: 
-        note = "現在値取得不可"
+        note = "現在値不明"
     elif bps is None: 
+        # BPSが取れない＝財務データがブロックされている
         note = "財務データ取得失敗"
     else:
         if eps_trail is not None and eps_trail > 0:
@@ -306,8 +305,7 @@ def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     try:
         if total > 1:
             progress_bar = st.progress(0)
-    except:
-        pass
+    except: pass
 
     for i, code in enumerate(codes):
         try:
