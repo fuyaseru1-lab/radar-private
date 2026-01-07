@@ -11,9 +11,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 🔑 パスワード設定（変更しました）
+# 🔑 パスワード設定
 # ==========================================
-# st.secretsが設定されていなくても動くように直接指定に変更しました
 LOGIN_PASSWORD = "7777"
 ADMIN_CODE = "77777"
 
@@ -94,7 +93,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 📈 チャート描画関数（改造版：赤青ライン追加・理論株価削除）
+# 📈 チャート描画関数（修正版：出来高プロファイルから抵抗線を算出）
 # -----------------------------
 def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist = ticker_data.get("hist_data")
@@ -105,23 +104,52 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     name = ticker_data.get("name", "Unknown")
     code = ticker_data.get("code", "----")
     current_price = ticker_data.get("price", 0)
-    # fair_value = ticker_data.get("fair_value") # 理論株価変数は削除
 
     hist = hist.reset_index()
     hist['Date'] = pd.to_datetime(hist.iloc[:, 0]).dt.tz_localize(None)
 
-    # --- 抵抗線・支持線の計算（簡易ロジック：直近の高値・安値） ---
-    # ※本来はテクニカル分析が必要ですが、視覚化のために期間内の最高値・最安値を使用します
-    resistance_price = hist['High'].max() # 赤ライン用
-    support_price = hist['Low'].min()     # 青ライン用
-
+    # --- 1. 価格帯別出来高の集計 ---
     bins = 50
     p_min = min(hist['Close'].min(), current_price * 0.9)
     p_max = max(hist['Close'].max(), current_price * 1.1)
     bin_edges = np.linspace(p_min, p_max, bins)
     hist['bin'] = pd.cut(hist['Close'], bins=bin_edges)
     vol_profile = hist.groupby('bin', observed=False)['Volume'].sum()
+
+    # --- 2. 抵抗線・支持線のロジック（出来高最大箇所を探す） ---
     
+    # 候補リストを作成
+    upper_candidates = [] # 赤用（現在値より上）
+    lower_candidates = [] # 青用（現在値以下）
+
+    for interval, volume in vol_profile.items():
+        mid_price = interval.mid
+        if volume == 0: continue # 出来高ゼロは無視
+        
+        if mid_price > current_price:
+            upper_candidates.append({'vol': volume, 'price': mid_price})
+        else:
+            lower_candidates.append({'vol': volume, 'price': mid_price})
+
+    # --- 赤（上値抵抗線）の決定 ---
+    # ロジック：出来高が最大のもの。同じなら「低い方（現在値に近い方）」を採用
+    # ソート順：①出来高(降順) ②価格(昇順)
+    if upper_candidates:
+        best_red = sorted(upper_candidates, key=lambda x: (-x['vol'], x['price']))[0]
+        resistance_price = best_red['price']
+    else:
+        resistance_price = hist['High'].max() # 候補がなければ最高値
+
+    # --- 青（下値抵抗線）の決定 ---
+    # ロジック：出来高が最大のもの。同じなら「高い方（現在値に近い方）」を採用
+    # ソート順：①出来高(降順) ②価格(降順) ※マイナスをつけて降順にする
+    if lower_candidates:
+        best_blue = sorted(lower_candidates, key=lambda x: (-x['vol'], -x['price']))[0]
+        support_price = best_blue['price']
+    else:
+        support_price = hist['Low'].min() # 候補がなければ最安値
+
+    # --- バーの色分け ---
     bar_colors = []
     for interval in vol_profile.index:
         if interval.mid > current_price:
@@ -149,7 +177,7 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         orientation='h', marker_color=bar_colors, name='出来高'
     ), row=1, col=2)
 
-    # --- ★ここが変更点：赤と青のラインを追加 ---
+    # --- ライン描画 ---
     
     # 🟥 上値抵抗線（抜ければ激アツ）
     fig.add_hline(
@@ -172,8 +200,6 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         annotation_font_color="#3b82f6",
         row=1, col=1
     )
-
-    # 理論株価の描画コードは削除しました
 
     fig.update_layout(
         title=f"📊 {name} ({code})", 
@@ -512,7 +538,7 @@ with st.expander("🌊 ファンドや機関（大口）の\"動き\"を検知�
     """)
 
 # -----------------------------
-# 🔧 管理者メニュー（パスワード変更反映）
+# 🔧 管理者メニュー
 # -----------------------------
 st.divider()
 with st.expander("🔧 管理者専用メニュー"):
