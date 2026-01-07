@@ -13,12 +13,10 @@ from plotly.subplots import make_subplots
 # ==========================================
 # 🔑 パスワード設定（Secretsから読み込む安全仕様）
 # ==========================================
-# GitHubに公開してもバレないように、直接書かずにサーバーの設定を見に行きます
 try:
     LOGIN_PASSWORD = st.secrets["LOGIN_PASSWORD"]
     ADMIN_CODE = st.secrets["ADMIN_CODE"]
 except Exception:
-    # 万が一設定し忘れた場合のエラーメッセージ
     st.error("❌ システムエラー：パスワード設定（Secrets）が見つかりません。")
     st.info("Streamlit Cloudの [Settings] > [Secrets] にパスワードを設定してください。")
     st.stop()
@@ -29,6 +27,7 @@ except Exception:
 # -----------------------------
 st.set_page_config(page_title="フヤセルブレイン - AI理論株価分析ツール", page_icon="📈", layout="wide")
 
+# ★スマホ対応：文字色強制ブラック＆チャート調整CSS
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -62,6 +61,19 @@ hide_streamlit_style = """
                 cursor: pointer;
                 font-weight: bold;
                 color: #31333F;
+            }
+            
+            /* ★スマホのダークモード対策：強制的に文字を濃い色にする */
+            html, body, p, h1, h2, h3, h4, h5, h6, li, span, div {
+                color: #31333F !important;
+            }
+            /* 背景も白系に固定 */
+            .stApp {
+                background-color: #ffffff;
+            }
+            /* 入力ボックス内の文字色も見やすく */
+            .stTextInput input, .stTextArea textarea {
+                color: #31333F !important;
             }
             </style>
             """
@@ -114,7 +126,7 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist['bin'] = pd.cut(hist['Close'], bins=bin_edges)
     vol_profile = hist.groupby('bin', observed=False)['Volume'].sum()
     
-    # 壁の色分け（現在値より上＝赤、下＝青）
+    # 壁の色分け
     bar_colors = []
     for interval in vol_profile.index:
         if interval.mid > current_price:
@@ -122,7 +134,7 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         else:
             bar_colors.append('rgba(33, 150, 243, 0.6)') # 青（下値）
 
-    # サブプロット作成（左：ローソク足、右：壁）
+    # サブプロット作成
     fig = make_subplots(
         rows=1, cols=2, 
         shared_yaxes=True, 
@@ -151,16 +163,30 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     if fair_value:
         fig.add_hline(y=fair_value, line_dash="dash", line_color="white", annotation_text="理論株価", annotation_position="top left")
 
-    # レイアウト調整
+    # レイアウト調整（★ここ重要：ドラッグ禁止設定）
     fig.update_layout(
-        title=f"📊 {name} ({code}) - 需給の壁＆理論株価チャート",
-        height=500,
+        title=f"📊 {name} ({code})",
+        height=450,
         showlegend=False,
-        xaxis_rangeslider_visible=False, # 下のスライダーを消す
-        margin=dict(l=10, r=10, t=40, b=10)
+        xaxis_rangeslider_visible=False,
+        margin=dict(l=10, r=10, t=40, b=10),
+        dragmode=False,  # ★ドラッグ操作（拡大縮小）を無効化
     )
+    
+    # x軸・y軸の固定設定
+    fig.update_xaxes(fixedrange=True) # ★X軸ズーム禁止
+    fig.update_yaxes(fixedrange=True) # ★Y軸ズーム禁止
 
-    st.plotly_chart(fig, use_container_width=True)
+    # ★configでツールバーも非表示にして完全固定
+    st.plotly_chart(
+        fig, 
+        use_container_width=True,
+        config={
+            'displayModeBar': False, # ツールバー消す
+            'staticPlot': False,      # 静止画にはしない（ツールチップは見れるように）
+            'scrollZoom': False       # スクロールズーム禁止
+        }
+    )
 
 
 # ==========================================
@@ -281,7 +307,7 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df.index = df.index + 1
     
-    # ★「詳細」チェックボックス
+    # 詳細チェックボックス
     df["詳細"] = False
     
     show_cols = [
