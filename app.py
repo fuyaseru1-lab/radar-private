@@ -11,10 +11,17 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # ==========================================
-# 🔑 パスワード設定
+# 🔑 パスワード設定（Secretsから読み込む安全仕様）
 # ==========================================
-LOGIN_PASSWORD = "7777"     
-ADMIN_CODE = "77777"       
+# GitHubに公開してもバレないように、直接書かずにサーバーの設定を見に行きます
+try:
+    LOGIN_PASSWORD = st.secrets["LOGIN_PASSWORD"]
+    ADMIN_CODE = st.secrets["ADMIN_CODE"]
+except Exception:
+    # 万が一設定し忘れた場合のエラーメッセージ
+    st.error("❌ システムエラー：パスワード設定（Secrets）が見つかりません。")
+    st.info("Streamlit Cloudの [Settings] > [Secrets] にパスワードを設定してください。")
+    st.stop()
 # ==========================================
 
 # -----------------------------
@@ -274,13 +281,12 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df.index = df.index + 1
     
-    # ★ここに「詳細」チェックボックスを追加
-    # デフォルトはFalse
+    # ★「詳細」チェックボックス
     df["詳細"] = False
     
     show_cols = [
         "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁（価格帯別出来高）",
-        "詳細", # ★壁の隣に配置
+        "詳細", 
         "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
     ]
     return df[show_cols]
@@ -362,19 +368,17 @@ if st.session_state["analysis_bundle"]:
     
     styled_df = df.style.map(highlight_errors, subset=["銘柄名"])
     
-    # ★ここが変更点！ st.data_editorを使用
-    # これにより、任意の列（今回は「詳細」）にチェックボックスを配置可能
+    # st.data_editor
     edited_df = st.data_editor(
         styled_df,
         use_container_width=True,
-        hide_index=True, # 左端のindexを消してスッキリさせる
+        hide_index=True,
         column_config={
             "詳細": st.column_config.CheckboxColumn(
                 "詳細",
                 help="チェックするとチャートを表示します",
                 default=False,
             ),
-            # 他の列を編集不可にする設定（念のため）
             "証券コード": st.column_config.TextColumn(disabled=True),
             "銘柄名": st.column_config.TextColumn(disabled=True),
         },
@@ -385,8 +389,6 @@ if st.session_state["analysis_bundle"]:
     selected_rows = edited_df[edited_df["詳細"] == True]
     
     if not selected_rows.empty:
-        # 複数チェックされていたら、一番上のものを表示（または全部表示）
-        # ここでは一番上の1つを表示する仕様にします
         selected_code = selected_rows.iloc[0]["証券コード"]
         ticker_data = bundle.get(selected_code)
         
