@@ -160,7 +160,7 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
 # メイン処理
 # ==========================================
 
-# 関数群（フォーマット等は既存維持）
+# 関数群
 def sanitize_codes(raw_codes: List[str]) -> List[str]:
     cleaned: List[str] = []
     for x in raw_codes:
@@ -273,8 +273,14 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["根拠【グレアム数】"] = df["note"].fillna("")
 
     df.index = df.index + 1
+    
+    # ★ここに「詳細」チェックボックスを追加
+    # デフォルトはFalse
+    df["詳細"] = False
+    
     show_cols = [
         "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁（価格帯別出来高）",
+        "詳細", # ★壁の隣に配置
         "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"
     ]
     return df[show_cols]
@@ -286,7 +292,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 st.title("📈 フヤセルブレイン - AI理論株価分析ツール")
 st.caption("証券コードを入力すると、理論株価・配当・成長性・大口介入期待度を一括表示します。")
 
-# 説明文（expander）は省略せずにそのまま
 with st.expander("★ 評価基準とアイコンの見方（クリックで詳細を表示）", expanded=False):
     st.markdown("""
 ### 1. 割安度評価（★）
@@ -324,7 +329,6 @@ run_btn = st.button("🚀 AIで分析開始！", type="primary")
 
 st.divider()
 
-# セッションステートにデータを保持（再描画で消えないように）
 if "analysis_bundle" not in st.session_state:
     st.session_state["analysis_bundle"] = None
 if "analysis_codes" not in st.session_state:
@@ -354,33 +358,43 @@ if st.session_state["analysis_bundle"]:
     df = bundle_to_df(bundle, codes)
     
     st.subheader("📊 フヤセルブレイン分析結果")
-    st.info("💡 **リストの行をクリック**すると、その銘柄の「壁チャート」が表示されます！")
+    st.info("💡 **「詳細」** 列のチェックボックスをONにすると、下に詳細チャートが表示されます！")
     
     styled_df = df.style.map(highlight_errors, subset=["銘柄名"])
     
-    # ★ここが新機能！選択可能データフレーム
-    event = st.dataframe(
-        styled_df, 
+    # ★ここが変更点！ st.data_editorを使用
+    # これにより、任意の列（今回は「詳細」）にチェックボックスを配置可能
+    edited_df = st.data_editor(
+        styled_df,
         use_container_width=True,
-        on_select="rerun",  # クリックしたら再実行してチャートを出す
-        selection_mode="single-row" # 1行だけ選べる
+        hide_index=True, # 左端のindexを消してスッキリさせる
+        column_config={
+            "詳細": st.column_config.CheckboxColumn(
+                "詳細",
+                help="チェックするとチャートを表示します",
+                default=False,
+            ),
+            # 他の列を編集不可にする設定（念のため）
+            "証券コード": st.column_config.TextColumn(disabled=True),
+            "銘柄名": st.column_config.TextColumn(disabled=True),
+        },
+        disabled=["証券コード", "銘柄名", "現在値", "理論株価", "上昇余地（％）", "評価", "今買いか？", "需給の壁（価格帯別出来高）", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入期待度", "根拠【グレアム数】"]
     )
     
-    # 選択された行があればチャートを描画
-    if event.selection.rows:
-        idx = event.selection.rows[0] # 選択された行番号(0始まり)
-        selected_code = df.iloc[idx]["証券コード"] # その行のコードを取得
-        
-        # バンドルから生データを取り出す
+    # チェックがついている行を探す
+    selected_rows = edited_df[edited_df["詳細"] == True]
+    
+    if not selected_rows.empty:
+        # 複数チェックされていたら、一番上のものを表示（または全部表示）
+        # ここでは一番上の1つを表示する仕様にします
+        selected_code = selected_rows.iloc[0]["証券コード"]
         ticker_data = bundle.get(selected_code)
         
-        # チャート表示エリア
         st.divider()
         st.markdown(f"### 📉 詳細分析チャート：{ticker_data.get('name')}")
         draw_wall_chart(ticker_data)
         st.divider()
 
-    # 補足情報など
     st.info(
         "**※ 評価が表示されない（—）銘柄について**\n\n"
         "赤字決算や財務データが不足している銘柄は、投資リスクの観点から自動的に **「評価対象外」** としています。\n\n"
@@ -388,8 +402,6 @@ if st.session_state["analysis_bundle"]:
         "その場合、根拠欄に **「※予想EPS参照」** と記載されます。",
         icon="ℹ️"
     )
-    # 以下、豆知識などは省略せず表示（コード簡略化のためここでは省略しますが、元のままでOKです）
-
 
 # -----------------------------
 # 🔧 管理者メニュー（最下部）
