@@ -1,6 +1,7 @@
 import re
 import math
 import unicodedata
+import time
 from typing import Any, Dict, List, Optional
 import pandas as pd
 import streamlit as st
@@ -9,19 +10,18 @@ import fair_value_calc_y4 as fv  # 計算エンジン
 # ==========================================
 # 🔑 パスワード設定
 # ==========================================
-USER_PASSWORD = "AK100005"  # 好きなパスワードに変更
+USER_PASSWORD = "7777"       # ログイン用パスワード
+ADMIN_PASSWORD = "77777"     # 管理者メニュー用パスワード
 # ==========================================
 
 st.set_page_config(page_title="フヤセルブレイン - AI理論株価分析ツール", page_icon="📈", layout="wide")
 
-# ★メニューは隠したまま、機能でカバーします
 hide_streamlit_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
             .stDeployButton {display:none;}
-            
             div.stButton > button:first-child {
                 background-color: #ff4b4b;
                 color: white;
@@ -34,7 +34,6 @@ hide_streamlit_style = """
             div.stButton > button:hover {
                 background-color: #e63e3e;
             }
-            
             details {
                 background-color: #f9f9f9;
                 padding: 10px;
@@ -47,12 +46,6 @@ hide_streamlit_style = """
                 cursor: pointer;
                 font-weight: bold;
                 color: #31333F;
-            }
-            
-            /* 管理者ボタン用のスタイル（少し控えめに） */
-            .admin-btn button {
-                background-color: #666 !important;
-                font-size: 0.8rem !important;
             }
             </style>
             """
@@ -69,11 +62,9 @@ def check_password():
         st.markdown("## 🔒 ACCESS RESTRICTED")
         st.caption("関係者専用ツールのため、パスワード制限をかけています。")
         password_input = st.text_input("パスワードを入力してください", type="password")
-        
         if st.button("ログイン"):
             input_norm = unicodedata.normalize('NFKC', password_input).upper().strip()
             secret_norm = unicodedata.normalize('NFKC', USER_PASSWORD).upper().strip()
-            
             if input_norm == secret_norm:
                 st.session_state["logged_in"] = True
                 st.rerun()
@@ -301,11 +292,23 @@ if run_btn:
     st.info("**※ 評価が表示されない銘柄について**\n赤字決算や財務データ不足の銘柄は自動的に「評価対象外」としています。ただし来期黒字予想がある場合は「※予想EPS参照」として計算しています。", icon="ℹ️")
 
 st.divider()
-# ★ここが新機能！「自爆スイッチ（リセットボタン）」を最下部に設置
-with st.expander("🔧 管理者用メニュー（困ったときはここ）"):
-    st.write("「存在しない銘柄」が消えない場合や、動作がおかしい場合は、このボタンを押してキャッシュを強制削除してください。")
-    if st.button("🗑️ キャッシュを全削除してリセット", type="secondary"):
-        st.cache_data.clear()
-        st.success("キャッシュを削除しました！リロードします...")
-        time.sleep(1)
-        st.rerun()
+
+# ★管理者用メニュー（シンプル表示に変更＆パスワード保護）
+with st.expander("🔧 管理者用メニュー"):
+    st.write("キャッシュ削除機能などを使用するには管理者パスワードが必要です。")
+    admin_input = st.text_input("管理者パスワードを入力", type="password", key="admin_pass")
+    
+    # パスワードチェック
+    if admin_input:
+        input_norm = unicodedata.normalize('NFKC', admin_input).upper().strip()
+        secret_norm = unicodedata.normalize('NFKC', ADMIN_PASSWORD).upper().strip()
+        
+        if input_norm == secret_norm:
+            st.success("認証成功：管理者権限が有効です")
+            if st.button("🗑️ キャッシュを全削除してリセット", type="secondary"):
+                st.cache_data.clear()
+                st.success("キャッシュを削除しました！リロードします...")
+                time.sleep(1)
+                st.rerun()
+        else:
+            st.error("パスワードが違います")
