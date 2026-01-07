@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import Dict, List, Any, Optional
 import math
-import concurrent.futures
 import streamlit as st
 import time
 import random
@@ -39,28 +38,19 @@ def _calc_bollinger_bands(series, window=20, num_std=2):
     return upper_band, lower_band
 
 def _calc_volume_profile_wall(hist, current_price, bins=40):
-    """
-    価格帯別出来高の壁を計算し、
-    「突破で激熱」か「割込で即逃げ」かの判定を行う
-    """
+    """需給の壁（価格帯別出来高）を計算"""
     try:
-        # ビン（価格帯）を作成して集計
         hist['price_bin'] = pd.cut(hist['Close'], bins=bins)
         vol_profile = hist.groupby('price_bin', observed=False)['Volume'].sum()
-        
-        # 最も出来高が多いビン（主戦場）を探す
         max_vol_bin = vol_profile.idxmax()
         target_price = max_vol_bin.mid
         
-        # 現在値との位置関係でメッセージ分岐
-        # 誤差2%程度は「激戦中」とみなす
         if current_price > target_price * 1.02:
             return f"🛡️下値壁 ({target_price:,.0f}) 割込で即逃げ"
         elif current_price < target_price * 0.98:
             return f"🚧上値壁 ({target_price:,.0f}) 突破で激熱"
         else:
             return f"⚔️激戦中 ({target_price:,.0f}) 分岐点"
-            
     except Exception:
         return "—"
 
@@ -82,15 +72,16 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
     return min(95, score)
 
 def _fetch_single_stock(code4: str) -> dict:
-    
-    time.sleep(random.uniform(0.5, 1.5))
+    # 連続アクセスを防ぐため、少し長めに待機
+    time.sleep(random.uniform(1.0, 2.0))
 
     ticker = f"{code4}.T"
     try:
         t = yf.Ticker(ticker)
-        # 6ヶ月分のデータを取得
+        # 6ヶ月分取得
         hist = t.history(period="6mo")
         
+        # データが取れない場合
         if hist is None or hist.empty:
             return {
                 "code": code4, "name": "存在しない銘柄", "weather": "—", "price": None, 
@@ -104,7 +95,7 @@ def _fetch_single_stock(code4: str) -> dict:
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
         current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
         
-        # ★新機能：需給の壁（突破力）判定
+        # 需給の壁
         volume_wall = "—"
         if len(hist) > 30 and price:
             volume_wall = _calc_volume_profile_wall(hist, price)
@@ -214,7 +205,7 @@ def _fetch_single_stock(code4: str) -> dict:
             "dividend": div_rate, "dividend_amount": raw_div,
             "growth": rev_growth, "market_cap": market_cap, "big_prob": big_prob,
             "signal_icon": signal_icon,
-            "volume_wall": volume_wall # 返却
+            "volume_wall": volume_wall
         }
     except Exception as e:
         return {
@@ -227,11 +218,12 @@ def _fetch_single_stock(code4: str) -> dict:
 @st.cache_data(ttl=43200, show_spinner=False)
 def calc_fuyaseru_bundle(codes: List[str]) -> Dict[str, Dict[str, Any]]:
     out = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {executor.submit(_fetch_single_stock, code): code for code in codes}
-        for f in concurrent.futures.as_completed(futures):
-            try:
-                res = f.result()
-                out[futures[f]] = res
-            except: pass
+    # ★修正点：並列処理（ThreadPoolExecutor）を廃止し、シンプルなループに変更
+    # これにより「診断ツール」と同じ確実な挙動になります。
+    for code in codes:
+        try:
+            res = _fetch_single_stock(code)
+            out[code] = res
+        except:
+            pass
     return out
