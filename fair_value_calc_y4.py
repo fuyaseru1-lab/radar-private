@@ -13,9 +13,13 @@ except Exception:
     yf = None
 
 # ==========================================
-# ⚙️ 設定（安全第一・シンプル構成）
+# ⚙️ 設定（執念のリトライ設定）
 # ==========================================
+MAX_RETRIES = 3       # 失敗しても3回までやり直す
+RETRY_DELAY = 5.0     # やり直す前に5秒待つ（Yahooを怒らせないため）
+
 def get_sleep_time():
+    # 普段の待機時間（ゆらぎを持たせる）
     return random.uniform(2.0, 4.0)
 
 def _safe_float(x, default=None):
@@ -84,7 +88,7 @@ def _calc_volume_profile_wall(hist, current_price, bins=50):
             diff = abs(lower_wall - current_price) / current_price
             if diff < threshold: is_lower_battle = True
         
-        # ★表記修正：「上壁」「下壁」＋「円」を追加
+        # ★表記修正：円と壁を追加
         if is_upper_battle:
             return f"🔥上壁激戦中 ({upper_wall:,.0f}円)"
         elif is_lower_battle:
@@ -118,20 +122,46 @@ def _calc_big_player_score(market_cap, pbr, volume_ratio):
         elif volume_ratio >= 1.5: score += 10
     return min(95, score)
 
+def _fetch_with_retry(ticker_symbol):
+    """執念のリトライロジック：取れるまで3回粘る"""
+    for attempt in range(MAX_RETRIES):
+        try:
+            t = yf.Ticker(ticker_symbol)
+            # まずHistoryをとってみる
+            hist = t.history(period="6mo")
+            if hist is not None and not hist.empty:
+                return t, hist # 成功したら返す
+            else:
+                raise ValueError("Empty Data")
+        except Exception:
+            # 失敗したら待機してリトライ
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(RETRY_DELAY)
+            else:
+                return None, None
+    return None, None
+
 def _fetch_single_stock(code4: str) -> dict:
+    # 最初の待機
     time.sleep(get_sleep_time())
+    
     ticker = f"{code4}.T"
     
-    t = yf.Ticker(ticker)
+    # ★リトライ機能付きでデータ取得
+    t, hist = _fetch_with_retry(ticker)
+    
+    # それでもダメならエラー
+    if t is None or hist is None:
+         return {
+            "code": code4, "name": "エラー", "weather": "—", "price": None, 
+            "fair_value": None, "upside_pct": None, "note": "データ取得不可(Yahoo拒否)", 
+            "dividend": None, "dividend_amount": None, "growth": None, 
+            "market_cap": None, "big_prob": None,
+            "signal_icon": "—", "volume_wall": "—"
+        }
 
-    # ----------------------------------------
-    # Phase 1: 株価・チャート（History）
-    # ----------------------------------------
+    # ここから先はデータが取れた前提の処理
     try:
-        hist = t.history(period="6mo")
-        if hist is None or hist.empty:
-            raise ValueError("No History")
-            
         price = _safe_float(hist["Close"].dropna().iloc[-1], None)
         current_volume = _safe_float(hist["Volume"].dropna().iloc[-1], 0)
         
@@ -167,9 +197,10 @@ def _fetch_single_stock(code4: str) -> dict:
             else: signal_icon = "↓✖"
             
     except Exception:
+        # 万が一計算でコケた場合
         return {
-            "code": code4, "name": "エラー", "weather": "—", "price": None, 
-            "fair_value": None, "upside_pct": None, "note": "データ取得不可", 
+            "code": code4, "name": "計算エラー", "weather": "—", "price": None, 
+            "fair_value": None, "upside_pct": None, "note": "計算失敗", 
             "dividend": None, "dividend_amount": None, "growth": None, 
             "market_cap": None, "big_prob": None,
             "signal_icon": "—", "volume_wall": "—"
