@@ -15,7 +15,6 @@ except Exception:
 # ==========================================
 # ⚙️ 設定（安全第一・シンプル構成）
 # ==========================================
-# 固定3秒ではなく、人間らしく「ゆらぎ」を持たせる
 def get_sleep_time():
     return random.uniform(2.0, 4.0)
 
@@ -84,17 +83,18 @@ def _calc_volume_profile_wall(hist, current_price, bins=50):
         if lower_wall:
             diff = abs(lower_wall - current_price) / current_price
             if diff < threshold: is_lower_battle = True
-            
+        
+        # ★表記修正：「上壁」「下壁」＋「円」を追加
         if is_upper_battle:
-            return f"🔥上壁激戦中 ({upper_wall:,.0f})"
+            return f"🔥上壁激戦中 ({upper_wall:,.0f}円)"
         elif is_lower_battle:
-            return f"⚠️下壁激戦中 ({lower_wall:,.0f})"
+            return f"⚠️下壁激戦中 ({lower_wall:,.0f}円)"
         else:
             parts = []
             if upper_wall:
-                parts.append(f"🚧上 {upper_wall:,.0f}")
+                parts.append(f"🚧上壁 {upper_wall:,.0f}円")
             if lower_wall:
-                parts.append(f"🛡️下 {lower_wall:,.0f}")
+                parts.append(f"🛡️下壁 {lower_wall:,.0f}円")
             if not parts: return "壁なし"
             return " / ".join(parts)
 
@@ -122,11 +122,10 @@ def _fetch_single_stock(code4: str) -> dict:
     time.sleep(get_sleep_time())
     ticker = f"{code4}.T"
     
-    # シンプルに呼び出す（変なヘッダーは付けない）
     t = yf.Ticker(ticker)
 
     # ----------------------------------------
-    # Phase 1: 株価・チャート（History） - ここが命
+    # Phase 1: 株価・チャート（History）
     # ----------------------------------------
     try:
         hist = t.history(period="6mo")
@@ -168,7 +167,6 @@ def _fetch_single_stock(code4: str) -> dict:
             else: signal_icon = "↓✖"
             
     except Exception:
-        # 株価すら取れない＝本当にエラー
         return {
             "code": code4, "name": "エラー", "weather": "—", "price": None, 
             "fair_value": None, "upside_pct": None, "note": "データ取得不可", 
@@ -186,14 +184,12 @@ def _fetch_single_stock(code4: str) -> dict:
     except Exception:
         info = {}
 
-    # ★新兵器: Fast Info (infoが死んでいても、これなら取れることが多い)
     fast_info = {}
     try:
         fast_info = t.fast_info
     except:
         pass
 
-    # データの統合（InfoになければFastInfoから取る）
     def get_val(key_info, key_fast=None):
         val = info.get(key_info)
         if val is None and key_fast and fast_info:
@@ -203,26 +199,18 @@ def _fetch_single_stock(code4: str) -> dict:
                 val = None
         return _safe_float(val, None)
 
-    # 項目ごとの取得
     eps_trail  = get_val("trailingEps")
     eps_fwd    = get_val("forwardEps")
     bps        = get_val("bookValue")
     roe        = get_val("returnOnEquity")
     roa        = get_val("returnOnAssets")
-    
-    # 時価総額はFastInfoの方が正確なことすらある
     market_cap = get_val("marketCap", "market_cap")
-    
-    # 平均出来高
     avg_volume = get_val("averageVolume")
     
-    # 銘柄名などはInfo頼みだが、なければコードで代用
     long_name = info.get("longName", info.get("shortName", f"({code4})"))
     
-    # PBR計算
     pbr = (price / bps) if (price and bps and bps > 0) else None
     
-    # 出来高倍率
     volume_ratio = 0
     if avg_volume and avg_volume > 0:
         volume_ratio = current_volume / avg_volume
@@ -247,7 +235,6 @@ def _fetch_single_stock(code4: str) -> dict:
     calc_eps = None
     is_forecast = False
     
-    # ETFチェック
     q_type = info.get("quoteType", "").upper()
     short_name = info.get("shortName", "").upper()
     is_fund = False
@@ -259,7 +246,6 @@ def _fetch_single_stock(code4: str) -> dict:
     elif not price: 
         note = "現在値不明"
     elif bps is None: 
-        # BPSが取れない＝財務データがブロックされている
         note = "財務データ取得失敗"
     else:
         if eps_trail is not None and eps_trail > 0:
