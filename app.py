@@ -67,6 +67,18 @@ hide_streamlit_style = """
                 color: #31333F !important;
                 background-color: #f0f2f6 !important;
             }
+            
+            /* ★スマホ対策：プレースホルダー（入力例）の色を強制的に濃くする */
+            ::placeholder {
+                color: #888888 !important;
+                opacity: 1; /* Firefox対策 */
+            }
+            :-ms-input-placeholder {
+                color: #888888 !important;
+            }
+            ::-ms-input-placeholder {
+                color: #888888 !important;
+            }
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -265,36 +277,27 @@ def highlight_errors(val):
         return 'color: #ff4b4b; font-weight: bold;'
     return ''
 
-# ★ランクの色分け関数（全ランク対応・バッジ仕様）
+# ★ランクの色分け関数
 def highlight_rank_color(val):
     if val == "SSS":
-        # SSS: 神々しいゴールド
         return 'background-color: #FFD700; color: #000000; font-weight: bold;'
     elif val == "SS":
-        # SS: 激熱オレンジ
         return 'background-color: #FF4500; color: #ffffff; font-weight: bold;'
     elif val == "S":
-        # S: チャンスピンク
         return 'background-color: #FF69B4; color: #ffffff; font-weight: bold;'
     elif val == "A":
-        # A: 優良グリーン
         return 'background-color: #22c55e; color: #ffffff; font-weight: bold;'
     elif val == "B":
-        # B: 普通ブルー
         return 'background-color: #3b82f6; color: #ffffff; font-weight: bold;'
     elif val == "C":
-        # C: 微妙グレー
         return 'background-color: #94a3b8; color: #ffffff; font-weight: bold;'
     elif val in ["D", "E"]:
-        # D, E: 注意パープル
         return 'background-color: #a855f7; color: #ffffff; font-weight: bold;'
     return ''
 
 # ★ランク付け用のスコア計算関数
 def calculate_score_and_rank(row):
     score = 0
-    
-    # 1. 上昇余地 (Max 40点)
     up = row.get('upside_pct_num', 0)
     if pd.isna(up): up = 0
     if up >= 50: score += 40
@@ -302,25 +305,21 @@ def calculate_score_and_rank(row):
     elif up >= 15: score += 20
     elif up > 0: score += 10
     
-    # 2. 大口介入 (Max 30点)
     prob = row.get('prob_num', 0)
     if pd.isna(prob): prob = 0
     if prob >= 80: score += 30
     elif prob >= 60: score += 20
     elif prob >= 40: score += 10
     
-    # 3. 事業成長 (Max 20点)
     growth = row.get('growth_num', 0)
     if pd.isna(growth): growth = 0
     if growth >= 30: score += 20
     elif growth >= 10: score += 10
     
-    # 4. 財務健全性 (Max 10点)
     weather = row.get('weather', '')
     if weather == '☀': score += 10
     elif weather == '☁': score += 5
     
-    # ランク判定
     if score >= 95: return "SSS"
     if score >= 90: return "SS"
     if score >= 85: return "S"
@@ -370,22 +369,18 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["mc_num"] = df["market_cap"].apply(_as_float)
     df["prob_num"] = df["big_prob"].apply(_as_float)
     
-    # 星計算
     df["rating"] = df["upside_pct_num"].apply(calc_rating_from_upside)
     df["stars"] = df["rating"].apply(to_stars)
     
-    # エラー処理
     error_mask = df["name"] == "存在しない銘柄"
     df.loc[error_mask, "stars"] = "—"
     df.loc[error_mask, "price"] = None
     df.loc[error_mask, "fair_value"] = None 
     df.loc[error_mask, "note"] = "—"
 
-    # ★ランク計算実行
     df["ランク"] = df.apply(calculate_score_and_rank, axis=1)
     df.loc[error_mask, "ランク"] = "—"
 
-    # カラム整理
     df["証券コード"] = df["ticker"]
     df["銘柄名"] = df["name"].fillna("—")
     df["業績"] = df["weather"].fillna("—")
@@ -405,10 +400,10 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df.index = df.index + 1
     df["詳細"] = False
     
-    # ★修正ポイント：詳細チェックボックスを一番左へ移動
+    # ★修正ポイント：「詳細」の位置を「需給の壁」の右へ戻しました
     show_cols = [
-        "詳細", # 先頭へ
         "ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁",
+        "詳細", 
         "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠"
     ]
     
@@ -462,7 +457,7 @@ with st.expander("★ ランク・評価基準の見方（クリックで詳細�
 """, unsafe_allow_html=True) 
 
 st.subheader("🔢 銘柄入力")
-# ★修正ポイント：ラベルにも記入例を明記し、placeholderも確実に設定
+# プレースホルダーを設置（CSSで色を強制済み）
 raw_text = st.text_area("分析したい証券コードを入力してください（※記入例：7203 9984）", height=100, placeholder="例：\n7203\n9984\n285A")
 run_btn = st.button("🚀 AIで分析開始！", type="primary")
 
@@ -498,7 +493,6 @@ if st.session_state["analysis_bundle"]:
     st.subheader("📊 分析結果")
     st.info("💡 **「詳細」** 列のチェックボックスをONにすると、下に詳細チャートが表示されます！（複数選択OK）")
     
-    # ★スタイル適用（ランクに色を付ける）
     styled_df = df.style.map(highlight_errors, subset=["銘柄名"])\
                         .map(highlight_rank_color, subset=["ランク"])
     
@@ -512,7 +506,6 @@ if st.session_state["analysis_bundle"]:
                 help="チャートを表示",
                 default=False,
             ),
-            # ★ランク列の設定
             "ランク": st.column_config.TextColumn(
                 "ランク",
                 help="総合スコア評価（SSS〜E）",
@@ -526,7 +519,6 @@ if st.session_state["analysis_bundle"]:
     
     selected_rows = edited_df[edited_df["詳細"] == True]
     
-    # ★複数選択ループ表示
     if not selected_rows.empty:
         for _, row in selected_rows.iterrows():
             selected_code = row["証券コード"]
