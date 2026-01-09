@@ -268,7 +268,7 @@ def highlight_errors(val):
 # ★ランクの色分け関数（レインボー仕様）
 def highlight_rank_color(val):
     if val == "SSS":
-        # SSS: 神々しいゴールド（レインボー代用）
+        # SSS: 神々しいゴールド
         return 'background-color: #FFD700; color: #000000; font-weight: bold;'
     elif val == "SS":
         # SS: 激熱オレンジ
@@ -450,7 +450,8 @@ with st.expander("★ ランク・評価基準の見方（クリックで詳細�
 """, unsafe_allow_html=True) 
 
 st.subheader("🔢 銘柄入力")
-raw_text = st.text_area("分析したい証券コードを入力してください", height=100, placeholder="例：\n7203\n9984\n285A")
+# ★修正ポイント：ラベルにも記入例を明記し、placeholderも確実に設定
+raw_text = st.text_area("分析したい証券コードを入力してください（※記入例：7203 9984）", height=100, placeholder="例：\n7203\n9984\n285A")
 run_btn = st.button("🚀 AIで分析開始！", type="primary")
 
 st.divider()
