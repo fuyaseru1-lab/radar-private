@@ -265,7 +265,7 @@ def highlight_errors(val):
         return 'color: #ff4b4b; font-weight: bold;'
     return ''
 
-# ★ランクの色分け関数（全ランク対応・バッジ仕様）
+# ★ランクの色分け関数（レインボー仕様）
 def highlight_rank_color(val):
     if val == "SSS":
         # SSS: 神々しいゴールド
@@ -276,18 +276,6 @@ def highlight_rank_color(val):
     elif val == "S":
         # S: チャンスピンク
         return 'background-color: #FF69B4; color: #ffffff; font-weight: bold;'
-    elif val == "A":
-        # A: 優良グリーン
-        return 'background-color: #22c55e; color: #ffffff; font-weight: bold;'
-    elif val == "B":
-        # B: 普通ブルー
-        return 'background-color: #3b82f6; color: #ffffff; font-weight: bold;'
-    elif val == "C":
-        # C: 微妙グレー
-        return 'background-color: #94a3b8; color: #ffffff; font-weight: bold;'
-    elif val in ["D", "E"]:
-        # D, E: 注意パープル
-        return 'background-color: #a855f7; color: #ffffff; font-weight: bold;'
     return ''
 
 # ★ランク付け用のスコア計算関数
@@ -405,10 +393,10 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df.index = df.index + 1
     df["詳細"] = False
     
-    # ★修正ポイント：詳細チェックボックスを一番左へ移動
+    # ランクを一番左へ
     show_cols = [
-        "詳細", # 先頭へ
         "ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁",
+        "詳細", 
         "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠"
     ]
     
@@ -426,9 +414,9 @@ with st.expander("★ ランク・評価基準の見方（クリックで詳細�
 - 🟨 **SSS (95-100点)**：**神**。全ての条件が揃った奇跡の銘柄。
 - 🟧 **SS (90-94点)**：**最強**。ほぼ死角なし。
 - 🟪 **S (85-89点)**：**超優秀**。文句なしの買い候補。
-- 🟩 **A (75-84点)**：**優良**。合格点。
-- 🟦 **B (60-74点)**：**普通**。悪くはない。
-- 🟪 **C〜E**：**微妙〜注意**。
+- **A (75-84点)**：**優良**。合格点。
+- **B (60-74点)**：**普通**。悪くはない。
+- **C〜E**：**微妙〜危険**。
 
 ### 1. 割安度評価（★）
 **理論株価**（本来の実力）と **現在値** を比較した「お得度」です。
