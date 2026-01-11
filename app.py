@@ -105,7 +105,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 📈 チャート描画関数（スマホ対策：強制ホワイトモード・抵抗線実装済）
+# 📈 チャート描画関数（スマホ対策・用語修正済み）
 # -----------------------------
 def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist = ticker_data.get("hist_data")
@@ -148,7 +148,7 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     else:
         resistance_price = hist['High'].max()
 
-    # 青（下値抵抗線）：出来高最大 > 価格高い方
+    # 青（下値支持線）：出来高最大 > 価格高い方
     if lower_candidates:
         best_blue = sorted(lower_candidates, key=lambda x: (-x['vol'], -x['price']))[0]
         support_price = best_blue['price']
@@ -194,11 +194,12 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         row=1, col=1
     )
 
+    # ★修正ポイント：文言を「下値支持線」に変更
     fig.add_hline(
         y=support_price, 
         line_color="#3b82f6", 
         line_width=2,
-        annotation_text="🟦 下値抵抗線（割れれば即逃げ）", 
+        annotation_text="🟦 下値支持線（割れれば即逃げ）", 
         annotation_position="bottom left",
         annotation_font_color="#3b82f6",
         row=1, col=1
@@ -407,7 +408,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df.index = df.index + 1
     df["詳細"] = False
     
-    # ★修正ポイント：「詳細」の位置を「需給の壁」の右へ戻しました
     show_cols = [
         "ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁",
         "詳細", 
@@ -482,7 +482,6 @@ if run_btn:
         st.error("証券コードが入力されていません。")
         st.stop()
 
-    # ★修正ポイント：ボタン押下時にスピナーを表示
     with st.spinner(f"🚀 高速分析中..."):
         try:
             bundle = fv.calc_fuyaseru_bundle(codes)
