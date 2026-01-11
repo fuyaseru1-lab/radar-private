@@ -204,7 +204,7 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         row=1, col=1
     )
 
-    # ★修正ポイント：レイアウトで「強制ホワイト化」を指定
+    # レイアウトで「強制ホワイト化」を指定
     fig.update_layout(
         title=f"📊 {name} ({code})", 
         height=450, 
@@ -212,7 +212,6 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         xaxis_rangeslider_visible=False, 
         margin=dict(l=10, r=10, t=60, b=10), 
         dragmode=False,
-        # ▼ここから追加：スマホのダークモードを無視して白背景にする設定
         template="plotly_white",  # ベースを白テーマに
         paper_bgcolor='white',    # グラフの外側の背景を白に
         plot_bgcolor='white',     # グラフの内側の背景を白に
@@ -221,7 +220,7 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
     fig.update_xaxes(fixedrange=True) 
     fig.update_yaxes(fixedrange=True)
 
-    # ★修正ポイント：theme=None を追加してStreamlitの自動テーマ適用を無効化
+    # theme=None を追加してStreamlitの自動テーマ適用を無効化
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False}, theme=None)
 
 # ==========================================
@@ -387,6 +386,9 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
 
     df["ランク"] = df.apply(calculate_score_and_rank, axis=1)
     df.loc[error_mask, "ランク"] = "—"
+    
+    # ★修正ポイント：列名を変更
+    df["根拠【グレアム数】"] = df["note"].fillna("—")
 
     df["証券コード"] = df["ticker"]
     df["銘柄名"] = df["name"].fillna("—")
@@ -402,15 +404,16 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["事業の勢い"] = df["growth_num"].apply(fmt_pct)
     df["時価総額"] = df["mc_num"].apply(fmt_market_cap)
     df["大口介入"] = df["prob_num"].apply(fmt_big_prob)
-    df["根拠"] = df["note"].fillna("—")
+    # df["根拠"] = df["note"].fillna("—") # 旧コード
 
     df.index = df.index + 1
     df["詳細"] = False
     
+    # ★修正ポイント：表示カラムも「根拠【グレアム数】」に変更
     show_cols = [
+        "詳細",
         "ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁",
-        "詳細", 
-        "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠"
+        "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠【グレアム数】"
     ]
     
     return df[show_cols]
@@ -520,7 +523,8 @@ if st.session_state["analysis_bundle"]:
             "証券コード": st.column_config.TextColumn(disabled=True),
             "銘柄名": st.column_config.TextColumn(disabled=True),
         },
-        disabled=["ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠"]
+        # ★修正ポイント：disabledにも「根拠【グレアム数】」を反映
+        disabled=["ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠【グレアム数】"]
     )
     
     selected_rows = edited_df[edited_df["詳細"] == True]
