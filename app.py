@@ -105,7 +105,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 📈 チャート描画関数（抵抗線ロジック実装済み）
+# 📈 チャート描画関数（強制ホワイトモード対策済み）
 # -----------------------------
 def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist = ticker_data.get("hist_data")
@@ -204,18 +204,25 @@ def draw_wall_chart(ticker_data: Dict[str, Any]):
         row=1, col=1
     )
 
+    # ★修正ポイント：レイアウトで「強制ホワイト化」を指定
     fig.update_layout(
         title=f"📊 {name} ({code})", 
         height=450, 
         showlegend=False, 
         xaxis_rangeslider_visible=False, 
         margin=dict(l=10, r=10, t=60, b=10), 
-        dragmode=False
+        dragmode=False,
+        # ▼ここから追加：スマホのダークモードを無視して白背景にする設定
+        template="plotly_white",  # ベースを白テーマに
+        paper_bgcolor='white',    # グラフの外側の背景を白に
+        plot_bgcolor='white',     # グラフの内側の背景を白に
+        font=dict(color='black')  # 文字色を黒に強制
     )
     fig.update_xaxes(fixedrange=True) 
     fig.update_yaxes(fixedrange=True)
 
-    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False})
+    # ★修正ポイント：theme=None を追加してStreamlitの自動テーマ適用を無効化
+    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False, 'staticPlot': False, 'scrollZoom': False}, theme=None)
 
 # ==========================================
 # メイン処理
@@ -400,7 +407,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df.index = df.index + 1
     df["詳細"] = False
     
-    # ★修正ポイント：「詳細」の位置を「需給の壁」の右へ戻しました
     show_cols = [
         "ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁",
         "詳細", 
