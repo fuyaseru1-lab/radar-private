@@ -105,7 +105,7 @@ def check_password():
 check_password()
 
 # -----------------------------
-# 📈 チャート描画関数（強制ホワイトモード対策済み）
+# 📈 チャート描画関数（スマホ対策：強制ホワイトモード・抵抗線実装済）
 # -----------------------------
 def draw_wall_chart(ticker_data: Dict[str, Any]):
     hist = ticker_data.get("hist_data")
@@ -387,7 +387,6 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["ランク"] = df.apply(calculate_score_and_rank, axis=1)
     df.loc[error_mask, "ランク"] = "—"
     
-    # ★修正ポイント：列名を変更
     df["根拠【グレアム数】"] = df["note"].fillna("—")
 
     df["証券コード"] = df["ticker"]
@@ -404,15 +403,14 @@ def bundle_to_df(bundle: Any, codes: List[str]) -> pd.DataFrame:
     df["事業の勢い"] = df["growth_num"].apply(fmt_pct)
     df["時価総額"] = df["mc_num"].apply(fmt_market_cap)
     df["大口介入"] = df["prob_num"].apply(fmt_big_prob)
-    # df["根拠"] = df["note"].fillna("—") # 旧コード
 
     df.index = df.index + 1
     df["詳細"] = False
     
-    # ★修正ポイント：表示カラムも「根拠【グレアム数】」に変更
+    # ★修正ポイント：「詳細」の位置を「需給の壁」の右へ戻しました
     show_cols = [
-        "詳細",
         "ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁",
+        "詳細", 
         "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠【グレアム数】"
     ]
     
@@ -484,6 +482,7 @@ if run_btn:
         st.error("証券コードが入力されていません。")
         st.stop()
 
+    # ★修正ポイント：ボタン押下時にスピナーを表示
     with st.spinner(f"🚀 高速分析中..."):
         try:
             bundle = fv.calc_fuyaseru_bundle(codes)
@@ -523,7 +522,6 @@ if st.session_state["analysis_bundle"]:
             "証券コード": st.column_config.TextColumn(disabled=True),
             "銘柄名": st.column_config.TextColumn(disabled=True),
         },
-        # ★修正ポイント：disabledにも「根拠【グレアム数】」を反映
         disabled=["ランク", "証券コード", "銘柄名", "現在値", "理論株価", "上昇余地", "評価", "売買", "需給の壁", "配当利回り", "年間配当", "事業の勢い", "業績", "時価総額", "大口介入", "根拠【グレアム数】"]
     )
     
